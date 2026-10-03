@@ -2,11 +2,14 @@
 核心翻译引擎
 重构自 scripts/async_translator.py
 """
+
 import asyncio
 import hashlib
+import json
 import logging
 import re
 from collections.abc import Callable
+from dataclasses import asdict
 from pathlib import Path
 
 from ..domain.models.translation_models import DocumentProfile, TranslationResult
@@ -37,6 +40,7 @@ class TranslationEngine:
         model_factory=None,
         engine: str | None = None,
         cache: TranslationCache | None = None,
+        config=None,
     ):
         """
         初始化翻译引擎
@@ -47,7 +51,7 @@ class TranslationEngine:
             engine: 编排引擎（langgraph | native），默认取配置 multi_agent.engine
             cache: chunk 翻译缓存，默认指向 data/translation_cache.db；测试可注入隔离缓存
         """
-        self.config = get_config()
+        self.config = config or get_config()
         self.glossary = glossary or {}
 
         model_factory = model_factory or ChatModelFactory(self.config)
@@ -56,10 +60,7 @@ class TranslationEngine:
         self.llm_analyst = model_factory.create_analyst()
 
         # 初始化组件
-        self.rate_limiter = RateLimiter(
-            rate=self.config.rate_limit,
-            per=60
-        )
+        self.rate_limiter = RateLimiter(rate=self.config.rate_limit, per=60)
 
         self.semaphore = asyncio.Semaphore(self.config.max_concurrent)
         self.chunk_planner = ChunkPlanner(
@@ -74,7 +75,9 @@ class TranslationEngine:
         )
         self.cache = cache or TranslationCache(self.config.root_dir / "data" / "translation_cache.db")
         self.document_profile = DocumentProfile.empty()
-        self.prompt_version = "v4"
+        self.prompt_version = "v5"
+        self.seed_results = {}
+        self.force_indices = set()
         self.prompt_builder = TranslationPromptBuilder(self.config)
         self.document_analyzer = DocumentAnalyzer(
             llm_analyst=self.llm_analyst,
@@ -131,20 +134,21 @@ class TranslationEngine:
             清理后的文本
         """
         # 删除中文注释
-        text = re.sub(r'（注：[^）]*）', '', text)
-        text = re.sub(r'\(注：[^)]*\)', '', text)
+        text = re.sub(r"（注：[^）]*）", "", text)
+        text = re.sub(r"\(注：[^)]*\)", "", text)
 
         # 删除修正标记
-        text = re.sub(r'【修正后的译文】[:：]?\s*', '', text)
-        text = re.sub(r'\[修正后的译文\][:：]?\s*', '', text)
+        text = re.sub(r"【修正后的译文】[:：]?\s*", "", text)
+        text = re.sub(r"\[修正后的译文\][:：]?\s*", "", text)
 
         # 删除英文提示
-        text = re.sub(r'^Here is the translation[:：]?\s*', '', text, flags=re.IGNORECASE)
-        text = re.sub(r'^Translation[:：]?\s*', '', text, flags=re.IGNORECASE)
+        text = re.sub(r"^Here is the translation[:：]?\s*", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"^Translation[:：]?\s*", "", text, flags=re.IGNORECASE)
 
         # 删除 markdown 代码块标记
-        text = re.sub(r'^```markdown\s*', '', text)
-        text = re.sub(r'\s*```$', '', text)
+        wrapper = re.fullmatch(r"```markdown[ \t]*\n([\s\S]*)\n```[ \t]*", text.strip())
+        if wrapper and not re.search(r"^```", wrapper.group(1), re.MULTILINE):
+            text = wrapper.group(1)
 
         # 清理重复短语 (LLM 循环问题)
         text = self._remove_repetitions(text)
@@ -170,9 +174,9 @@ class TranslationEngine:
         """
         extra = self._REPETITION_MIN_REPEATS - 1  # 正则 \1{n,} 中的 n（首次出现之外的次数）
         rules = [
-            (rf'(.{{5,50}}?)\1{{{extra},}}', r'\1', 0, "短语"),
-            (rf'([一-龥]{{2,10}})\1{{{extra},}}', r'\1', 0, "中文词组"),
-            (rf'\b(\w{{3,}})\s+(\1\s+){{{extra},}}', r'\1 ', re.IGNORECASE, "英文单词"),
+            (rf"(.{{5,50}}?)\1{{{extra},}}", r"\1", 0, "短语"),
+            (rf"([一-龥]{{2,10}})\1{{{extra},}}", r"\1", 0, "中文词组"),
+            (rf"\b(\w{{3,}})\s+(\1\s+){{{extra},}}", r"\1 ", re.IGNORECASE, "英文单词"),
         ]
         for pattern, repl, flags, label in rules:
             new_text = re.sub(pattern, repl, text, flags=flags)
@@ -181,7 +185,7 @@ class TranslationEngine:
                 text = new_text
 
         # 连续重复标点(如 。。。。。。)保留 3 个；这类几乎不会是刻意排版
-        text = re.sub(r'([。，！？；：])\1{3,}', r'\1\1\1', text)
+        text = re.sub(r"([。，！？；：])\1{3,}", r"\1\1\1", text)
 
         return text
 
@@ -216,29 +220,24 @@ class TranslationEngine:
         术语表只纳入本块实际注入的子集（与 translation_client 口径一致），
         这样向术语表新增无关术语时不会使全书缓存失效。
         """
-        relevant_glossary = select_relevant_glossary(
-            self.glossary, chunk.text, chunk.context_text
-        )
-        glossary_payload = "\n".join(
-            f"{en}:{zh}" for en, zh in sorted(relevant_glossary.items())
-        )
+        relevant_glossary = select_relevant_glossary(self.glossary, chunk.text, chunk.context_text)
+        glossary_payload = "\n".join(f"{en}:{zh}" for en, zh in sorted(relevant_glossary.items()))
         payload = "|".join(
             [
                 self.prompt_version,
                 self.config.prompt_fingerprint,
                 self.config.model_name or "",
+                getattr(self.config, "api_base_url", ""),
                 chunk.chunk_id,
+                chunk.context_text,
+                json.dumps(self.config.get("quality", {}) if hasattr(self.config, "get") else {}, sort_keys=True),
                 self.document_profile.fingerprint,
                 glossary_payload,
             ]
         ).encode("utf-8")
         return hashlib.sha1(payload).hexdigest()
 
-    async def translate_chunk(
-        self,
-        chunk: TextChunk,
-        progress_callback: Callable | None = None
-    ) -> TranslationResult:
+    async def translate_chunk(self, chunk: TextChunk, progress_callback: Callable | None = None) -> TranslationResult:
         """
         翻译单个文本块
 
@@ -259,26 +258,35 @@ class TranslationEngine:
                 translation=translation,
             )
 
+            if not translation.strip():
+                raise ValueError("模型返回空译文")
+
+            # 缓存是恢复加速层；落盘失败不能丢弃有效译文或重复计入进度。
+            try:
+                await self.cache.set(
+                    cache_key=self._build_cache_key(chunk),
+                    chunk_id=chunk.chunk_id,
+                    translation=translation,
+                    quality_report=quality_report.to_dict(),
+                    repaired=repaired,
+                )
+            except Exception:
+                logger.warning("块缓存写入失败: %s", chunk.chunk_id, exc_info=True)
+
             # 成功回调
             if progress_callback:
-                await progress_callback({
-                    "chunk_index": chunk.index,
-                    "chunk_id": chunk.chunk_id,
-                    "status": "completed",
-                    "translation": translation,
-                    "duration": duration,
-                    "quality_report": quality_report.to_dict(),
-                    "repaired": repaired,
-                    "cached": False,
-                })
-
-            await self.cache.set(
-                cache_key=self._build_cache_key(chunk),
-                chunk_id=chunk.chunk_id,
-                translation=translation,
-                quality_report=quality_report.to_dict(),
-                repaired=repaired,
-            )
+                await progress_callback(
+                    {
+                        "chunk_index": chunk.index,
+                        "chunk_id": chunk.chunk_id,
+                        "status": "completed",
+                        "translation": translation,
+                        "duration": duration,
+                        "quality_report": quality_report.to_dict(),
+                        "repaired": repaired,
+                        "cached": False,
+                    }
+                )
 
             return TranslationResult(
                 chunk_index=chunk.index,
@@ -294,12 +302,9 @@ class TranslationEngine:
             )
         except Exception as e:
             if progress_callback:
-                await progress_callback({
-                    "chunk_index": chunk.index,
-                    "chunk_id": chunk.chunk_id,
-                    "status": "failed",
-                    "error": str(e)
-                })
+                await progress_callback(
+                    {"chunk_index": chunk.index, "chunk_id": chunk.chunk_id, "status": "failed", "error": str(e)}
+                )
 
             return TranslationResult(
                 chunk_index=chunk.index,
@@ -378,6 +383,7 @@ class TranslationEngine:
             bilingual=bilingual,
             progress_callback=progress_callback,
             process_chunk=self._process_one_chunk,
+            skip_cache_indices=set(getattr(self, "seed_results", {})) | getattr(self, "force_indices", set()),
         )
 
     async def _prepare_document(
@@ -387,37 +393,41 @@ class TranslationEngine:
         progress_callback: Callable | None,
     ) -> None:
         """文档级准备：运行分析员、初始化缓存、上报分块完成事件。两引擎共用。"""
-        if hasattr(self, "analyze_document"):
+        await self.cache.initialize()
+        profile_key = (
+            hashlib.sha256(
+                (text + self.config.prompt_fingerprint + str(self.config.get("multi_agent", {}))).encode()
+            ).hexdigest()
+            if hasattr(self.config, "prompt_fingerprint")
+            else None
+        )
+        saved = (
+            await self.cache.get_profile(profile_key) if profile_key and hasattr(self.cache, "get_profile") else None
+        )
+        if saved is not None:
+            self.document_profile = DocumentProfile(**saved)
+        elif hasattr(self, "analyze_document"):
             self.document_profile = await self.analyze_document(text, chunks)
+            # 空画像通常是临时 API 错误的降级，不把它永久固定。
+            if profile_key and self.document_profile != DocumentProfile.empty():
+                await self.cache.set_profile(profile_key, asdict(self.document_profile))
         else:
             self.document_profile = DocumentProfile.empty()
-        await self.cache.initialize()
 
         if progress_callback:
-            await progress_callback({
-                "event": "split_completed",
-                "total_chunks": len(chunks),
-            })
+            await progress_callback(
+                {
+                    "event": "split_completed",
+                    "total_chunks": len(chunks),
+                }
+            )
 
     async def _process_one_chunk(
-        self,
-        chunk: TextChunk,
-        output_manager: OutputManager,
-        callback: Callable | None
+        self, chunk: TextChunk, output_manager: OutputManager, callback: Callable | None
     ) -> TranslationResult:
         """单块处理(信号量控制)"""
         async with self.semaphore:
-            result = await self.translate_chunk(chunk, callback)
-
-            # 写入输出管理器
-            await output_manager.add_result(
-                index=result.chunk_index,
-                content=result.translation,
-                success=result.success,
-                original_text=result.original
-            )
-
-            return result
+            return await self._translate_and_emit(chunk, output_manager, callback)
 
     async def _translate_and_emit(
         self,
@@ -431,7 +441,23 @@ class TranslationEngine:
         逐字段等价；langgraph 引擎的每个 Send 分支复用它，保证两引擎产出一致。
         并发上限由调用方控制（native 用 Semaphore，langgraph 用图的 max_concurrency）。
         """
-        cache_entry = await self.cache.get(self._build_cache_key(chunk))
+        seed = getattr(self, "seed_results", {}).get(chunk.index)
+        if (
+            seed is not None
+            and seed.original == chunk.text
+            and chunk.index not in getattr(self, "force_indices", set())
+        ):
+            await output_manager.add_result(seed.chunk_index, seed.translation, seed.success, seed.original)
+            if progress_callback:
+                await progress_callback(
+                    {"status": "completed" if seed.success else "failed", "chunk_index": chunk.index, "cached": True}
+                )
+            return seed
+        cache_entry = (
+            None
+            if chunk.index in getattr(self, "force_indices", set())
+            else await self.cache.get(self._build_cache_key(chunk))
+        )
         if cache_entry is not None:
             result = build_cached_result(chunk, cache_entry)
             await output_manager.add_result(

@@ -1,6 +1,6 @@
 # agentic-translator
 
-**An agentic translation system for dense, terminology-heavy books and papers — PDF/EPUB/Markdown in, publication-ready Chinese Markdown out.**
+**An agentic translation system for dense, terminology-heavy books and papers — PDF/EPUB/Markdown in, reviewable Chinese Markdown out.**
 
 Not tied to any single domain: bring your own glossary and translate professional texts from any field that breaks naive "chunk-and-prompt" translation — postmodern philosophy (Nick Land's CCRU writings, Reza Negarestani's *Cyclonopedia*), machine learning papers, or anything where terminology drift across 300+ chunks is unacceptable.
 
@@ -10,29 +10,29 @@ Not tied to any single domain: bring your own glossary and translate professiona
 
 **English** | [简体中文](README.zh-CN.md)
 
-![Web UI](docs/images/web-ui.png)
+![Web UI](docs/images/review-workspace.jpg)
 
 ## Why agentic?
 
 A single prompt cannot hold a whole book. This system splits the work across three LLM roles orchestrated by a document-level **LangGraph StateGraph**:
 
-- **Analyst** — reads the document once, produces a global profile (summary, style, terminology hints) injected into every chunk's prompt.
+- **Analyst** — samples the beginning, middle, and end within a fixed input budget, produces a global profile (summary, style, terminology hints) injected into every chunk's prompt.
 - **Translator** — translates each chunk concurrently, constrained by the glossary and the document profile.
 - **Reviewer** — steps in *only* for chunks that fail quality checks (untranslated residue, missing glossary terms, broken Markdown structure), keeping cost proportional to risk.
 
-Every claim about whether this architecture helps is backed by a reproducible [evaluation harness](#evaluation) — including a data-driven decision *not* to build RAG translation memory ([ADR-0002](docs/adr/0002-rag-translation-memory-threshold.md)).
+Every claim about whether this architecture helps is backed by a reproducible [evaluation harness](#evaluation) — with a threshold for deciding whether RAG translation memory is warranted; no candidate phrases means insufficient data ([ADR-0002](docs/adr/0002-rag-translation-memory-threshold.md)).
 
 ## Features
 
 - 🕸️ **Document-level LangGraph engine** — analyst → Send-API fan-out → per-chunk translate/QA/repair → aggregate, in one StateGraph ([ADR-0001](docs/adr/0001-langgraph-document-level-graph.md)); a `native` asyncio engine is kept behind a config switch for A/B comparison
-- 🚀 **Async concurrency** — configurable parallel requests with token-bucket rate limiting and exponential-backoff retry
+- 🚀 **Async concurrency** — account-wide request concurrency and rolling RPM limits shared across workers and exponential-backoff retry
 - 🧩 **Chapter-aware chunking** — chunks planned along Markdown headings with stable structured chunk IDs
 - 📚 **Glossary enforcement** — JSON glossaries injected into prompts and verified by the QA checker
 - 🛡️ **Selective repair** — QA flags high-risk chunks; only those get a one-shot Reviewer retranslation
 - 💾 **Chunk-level SQLite cache** — resumable by design; keys include model, glossary, prompt version, and document-profile fingerprint
 - ⚠️ **Failure isolation** — a failed chunk becomes a placeholder, never a stalled document
 - 🌗 **Bilingual export** — alternating source/translation Markdown and two-column HTML
-- 🌐 **Web UI** — React + FastAPI, with a SQLite task queue and horizontally scalable workers
+- 🌐 **Web UI** — React + FastAPI, with task search, cancellation, recovery, per-chunk retranslation, and manual review
 - 🔌 **MCP server** — stdio transport exposing translation, task management, and glossary tools to Claude Desktop and other MCP clients
 - 🔭 **Observability** — opt-in Langfuse tracing of the full agent call chain and per-chunk token usage, degrading to no-op when unconfigured
 
@@ -56,6 +56,14 @@ docker compose up --build
 ```
 
 The **api** service serves the Web UI and REST API; the **worker** service consumes the translation queue independently — both share one image. Task DB, translation cache, uploads, and results live in named volumes (`translator-data` / `translator-logs`), so `docker compose down && docker compose up` keeps your data; use `down -v` to wipe it.
+
+The default image installs Pandoc for Markdown/EPUB. For PDF support, build the optional Marker dependencies with `ENABLE_PDF=1 docker compose build`, then run `docker compose up`. The UI only offers formats supported by the installed tools.
+
+## Translation and review workflow
+
+Open a task's own URL to follow conversion, analysis, translation, and export. Search, status filters, and pagination help navigate the queue. Review source/translation pairs and quality issues, edit a chunk to update downloads, or retranslate selected/failed chunks while preserving the other results. Recovery reuses the task's configuration and glossary snapshots.
+
+Execution leases and version checks prevent cancelled or expired workers from publishing over newer results. See [ADR-0003](docs/adr/0003-task-leases-and-review-artifacts.md).
 
 ## Quick start (local)
 
@@ -110,20 +118,20 @@ python run_worker.py --processes 4 --parallel-tasks 2 # terminal 2: worker pool
 │  translate.py (CLI)   src/api (FastAPI + worker)            │
 │  src/interfaces/mcp (MCP stdio server)                      │
 ├──────────────────────── pipelines ──────────────────────────┤
-│  src/pipelines: ingest → preprocess → translate →           │
+│  src/pipelines: preprocess → translate →           │
 │  postprocess.  translate/ holds the two engines:            │
 │    graph_engine.py (LangGraph, default)                     │
 │    batch_orchestrator.py (native asyncio, transitional)     │
 │  shared by both: prompt_builder / translation_client /      │
 │  quality_pipeline / document_analyzer                       │
 ├───────────────────── domain & core ─────────────────────────┤
-│  src/domain: models, contracts, rules (pure, no I/O)        │
+│  src/domain: models, rules (pure, no I/O)        │
 │  src/core: chunk_planner, translation_cache, rate_limiter,  │
 │            output_manager (ordered streaming), validator    │
 ├────────────────────── infrastructure ───────────────────────┤
 │  src/infrastructure: llm (model factory), cache,            │
 │  persistence, converters (Pandoc), observability (Langfuse),│
-│  config, filesystem                                         │
+│  filesystem                                         │
 ├──────────────────────── evaluation ─────────────────────────┤
 │  src/evaluation: translator-eval CLI — LLM-as-judge,        │
 │  paired comparisons, consistency-rate metric                │
@@ -240,6 +248,8 @@ Pass with `-g data/glossaries/my_glossary.json`, or manage them visually in the 
 pip install -e ".[dev]"   # or: pip install -r requirements.txt
 ruff check .              # lint
 pytest                    # unit + integration tests
+python scripts/generate_api_types.py --check
+cd frontend && npm ci && npm run lint && npm test && npm run build
 ```
 
 CI runs Ruff, pytest, and the frontend build on every push ([ci.yml](.github/workflows/ci.yml)).

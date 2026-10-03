@@ -1,6 +1,7 @@
 """
 术语表 API 路由
 """
+
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from ..models.glossary import (
@@ -138,8 +139,40 @@ async def export_glossary(glossary_id: str):
     if not file_path:
         raise HTTPException(status_code=404, detail="术语表不存在")
 
-    return FileResponse(
-        path=file_path,
-        filename=f"{glossary_id}.json",
-        media_type="application/json"
-    )
+    return FileResponse(path=file_path, filename=f"{glossary_id}.json", media_type="application/json")
+
+
+@router.post("/draft")
+async def suggest_glossary(file: UploadFile = File(...), glossary_id: str | None = Form(None)):
+    """生成可编辑的候选草稿，不自动修改已有术语表。"""
+    import asyncio
+    import tempfile
+    from dataclasses import asdict
+    from pathlib import Path
+
+    from ...converters.document_converter import DocumentConverter
+    from ...infrastructure.filesystem.task_files import validate_upload
+    from ...infrastructure.llm.chat_model_factory import ChatModelFactory
+    from ...pipelines.glossary.glossary_extractor import GlossaryExtractor
+    from ...pipelines.translate.prompt_builder import TranslationPromptBuilder
+    from ...utils.config_loader import get_config
+
+    content = await file.read(50 * 1024 * 1024 + 1)
+    name = validate_upload(content, file.filename)
+    existing = await service.get_glossary(glossary_id) if glossary_id else None
+    if glossary_id and existing is None:
+        raise HTTPException(404, "术语表不存在")
+    config = get_config()
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        source = root / name
+        await asyncio.to_thread(source.write_bytes, content)
+        markdown = await DocumentConverter().convert_async(source, root / "converted")
+        text = await asyncio.to_thread(markdown.read_text, encoding="utf-8-sig")
+        extractor = GlossaryExtractor(
+            ChatModelFactory(config).create_analyst(), config, TranslationPromptBuilder(config)
+        )
+        candidates = await extractor.extract(text, existing["terms"] if existing else {})
+    if not candidates:
+        raise HTTPException(502, "未取得候选术语，请检查模型配置或稍后重试")
+    return {"candidates": [asdict(item) for item in candidates]}

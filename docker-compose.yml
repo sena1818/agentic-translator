@@ -8,6 +8,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        ENABLE_PDF: ${ENABLE_PDF:-0}
     image: agentic-translator:latest
     command: python run_server.py
     ports:
@@ -35,6 +37,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        ENABLE_PDF: ${ENABLE_PDF:-0}
     image: agentic-translator:latest
     command: python run_worker.py
     environment:

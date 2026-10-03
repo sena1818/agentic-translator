@@ -2,44 +2,27 @@
  * API 客户端
  * 封装所有后端 API 调用
  */
-import axios from 'axios';
+import axios from "axios";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
   timeout: 60000,
   headers: {
-    'Content-Type': 'application/json',
+    "Content-Type": "application/json",
   },
 });
 
 // ============== 类型定义 ==============
 
-export interface TaskProgress {
-  current: number;
-  total: number;
-  percentage: number;
-  speed: number;
-  elapsed: number;
-}
-
-export interface TranslationTask {
-  task_id: string;
-  filename: string;
-  status: 'pending' | 'processing' | 'completed' | 'partial_success' | 'failed';
-  glossary_id: string | null;
-  bilingual: boolean;
-  progress: TaskProgress;
-  result_url: string | null;
-  error: string | null;
-  created_at: string;
-  updated_at: string;
-}
+export type { TaskProgress, TranslationTask, TaskStatus } from "./generated";
+import type { TranslationTask, TaskStatus } from "./generated";
 
 export interface TaskListResponse {
   tasks: TranslationTask[];
   total: number;
+  stats: Partial<Record<TaskStatus, number>>;
 }
 
 export interface Glossary {
@@ -71,23 +54,23 @@ export interface BilingualPreview {
 export const createTranslationTask = async (
   file: File,
   glossaryId?: string,
-  bilingual: boolean = false
+  bilingual: boolean = false,
 ): Promise<TranslationTask> => {
   const formData = new FormData();
-  formData.append('file', file);
+  formData.append("file", file);
   if (glossaryId) {
-    formData.append('glossary_id', glossaryId);
+    formData.append("glossary_id", glossaryId);
   }
-  formData.append('bilingual', String(bilingual));
+  formData.append("bilingual", String(bilingual));
 
   const response = await apiClient.post<TranslationTask>(
-    '/api/translation/tasks',
+    "/api/translation/tasks",
     formData,
     {
       headers: {
-        'Content-Type': 'multipart/form-data',
+        "Content-Type": "multipart/form-data",
       },
-    }
+    },
   );
 
   return response.data;
@@ -96,18 +79,30 @@ export const createTranslationTask = async (
 /**
  * 查询任务状态
  */
-export const getTaskStatus = async (taskId: string): Promise<TranslationTask> => {
-  const response = await apiClient.get<TranslationTask>(`/api/translation/tasks/${taskId}`);
+export const getTaskStatus = async (
+  taskId: string,
+): Promise<TranslationTask> => {
+  const response = await apiClient.get<TranslationTask>(
+    `/api/translation/tasks/${taskId}`,
+  );
   return response.data;
 };
 
 /**
  * 获取任务列表
  */
-export const getTaskList = async (skip = 0, limit = 20): Promise<TaskListResponse> => {
-  const response = await apiClient.get<TaskListResponse>('/api/translation/tasks', {
-    params: { skip, limit },
-  });
+export const getTaskList = async (
+  skip = 0,
+  limit = 20,
+  search = "",
+  status = "",
+): Promise<TaskListResponse> => {
+  const response = await apiClient.get<TaskListResponse>(
+    "/api/translation/tasks",
+    {
+      params: { skip, limit, search, status: status || undefined },
+    },
+  );
   return response.data;
 };
 
@@ -126,8 +121,8 @@ export const deleteTask = async (taskId: string): Promise<void> => {
  */
 export const downloadResult = (
   taskId: string,
-  format: 'md' | 'html' | 'zip' = 'md',
-  variant: 'mono' | 'bilingual' = 'mono'
+  format: "md" | "html" | "zip" = "md",
+  variant: "mono" | "bilingual" = "mono",
 ): string => {
   return `${API_BASE_URL}/api/files/results/${taskId}?format=${format}&variant=${variant}`;
 };
@@ -135,8 +130,12 @@ export const downloadResult = (
 /**
  * 获取双语对照预览（Web 界面内双栏渲染，无需下载）
  */
-export const getBilingualPreview = async (taskId: string): Promise<BilingualPreview> => {
-  const response = await apiClient.get<BilingualPreview>(`/api/files/results/${taskId}/preview`);
+export const getBilingualPreview = async (
+  taskId: string,
+): Promise<BilingualPreview> => {
+  const response = await apiClient.get<BilingualPreview>(
+    `/api/files/results/${taskId}/preview`,
+  );
   return response.data;
 };
 
@@ -146,7 +145,7 @@ export const getBilingualPreview = async (taskId: string): Promise<BilingualPrev
  * 获取术语表列表
  */
 export const getGlossaryList = async (): Promise<Glossary[]> => {
-  const response = await apiClient.get<Glossary[]>('/api/glossary/');
+  const response = await apiClient.get<Glossary[]>("/api/glossary/");
   return response.data;
 };
 
@@ -163,9 +162,9 @@ export const getGlossary = async (glossaryId: string): Promise<Glossary> => {
  */
 export const createGlossary = async (
   name: string,
-  terms: Record<string, string>
+  terms: Record<string, string>,
 ): Promise<Glossary> => {
-  const response = await apiClient.post<Glossary>('/api/glossary/', {
+  const response = await apiClient.post<Glossary>("/api/glossary/", {
     name,
     terms,
   });
@@ -177,7 +176,7 @@ export const createGlossary = async (
  */
 export const updateGlossary = async (
   glossaryId: string,
-  terms: Record<string, string>
+  terms: Record<string, string>,
 ): Promise<void> => {
   await apiClient.put(`/api/glossary/${glossaryId}`, { terms });
 };
@@ -188,11 +187,11 @@ export const updateGlossary = async (
 export const modifyGlossaryTerms = async (
   glossaryId: string,
   add?: Record<string, string>,
-  remove?: string[]
+  remove?: string[],
 ): Promise<number> => {
   const response = await apiClient.patch<{ term_count: number }>(
     `/api/glossary/${glossaryId}/terms`,
-    { add, remove }
+    { add, remove },
   );
   return response.data.term_count;
 };
@@ -207,16 +206,23 @@ export const deleteGlossary = async (glossaryId: string): Promise<void> => {
 /**
  * 导入术语表
  */
-export const importGlossary = async (file: File, name: string): Promise<Glossary> => {
+export const importGlossary = async (
+  file: File,
+  name: string,
+): Promise<Glossary> => {
   const formData = new FormData();
-  formData.append('file', file);
-  formData.append('name', name);
+  formData.append("file", file);
+  formData.append("name", name);
 
-  const response = await apiClient.post<Glossary>('/api/glossary/import', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data',
+  const response = await apiClient.post<Glossary>(
+    "/api/glossary/import",
+    formData,
+    {
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
     },
-  });
+  );
 
   return response.data;
 };
@@ -226,4 +232,87 @@ export const importGlossary = async (file: File, name: string): Promise<Glossary
  */
 export const exportGlossary = (glossaryId: string): string => {
   return `${API_BASE_URL}/api/glossary/${glossaryId}/export`;
+};
+
+export interface SystemState {
+  workers_online: number;
+  formats: string[];
+  max_upload_bytes: number;
+}
+export interface ChunkResult {
+  chunk_index: number;
+  chunk_id: string;
+  original: string;
+  translation: string;
+  success: boolean;
+  cached: boolean;
+  repaired: boolean;
+  quality_report: {
+    passed?: boolean;
+    reviewed?: boolean;
+    issues?: Array<{ kind: string; severity: string; message: string }>;
+  };
+}
+export interface ChunkPage {
+  chunks: ChunkResult[];
+  total: number;
+  revision: string | null;
+}
+export const getSystemState = async (): Promise<SystemState> =>
+  (await apiClient.get("/api/system")).data;
+export const cancelTranslation = async (id: string) => {
+  await apiClient.post(`/api/translation/tasks/${id}/cancel`);
+};
+export const retryTranslation = async (id: string, indices?: number[]) => {
+  await apiClient.post(`/api/translation/tasks/${id}/retry`, {
+    indices: indices ?? null,
+  });
+};
+export const getChunks = async (id: string, skip = 0): Promise<ChunkPage> =>
+  (
+    await apiClient.get(`/api/translation/tasks/${id}/chunks`, {
+      params: { skip, limit: 10 },
+    })
+  ).data;
+export const editChunk = async (
+  id: string,
+  index: number,
+  translation: string,
+  revision: string | null,
+) => {
+  await apiClient.put(`/api/translation/tasks/${id}/chunks/${index}`, {
+    translation,
+    revision,
+  });
+};
+export const errorText = (error: unknown): string =>
+  axios.isAxiosError(error)
+    ? typeof error.response?.data?.detail === "string"
+      ? error.response.data.detail
+      : error.message
+    : error instanceof Error
+      ? error.message
+      : "请求失败，请重试";
+export const assetUrl = (id: string, src: string) =>
+  src.startsWith(`assets/${id}/`)
+    ? `${API_BASE_URL}/api/files/results/${id}/assets/${encodeURIComponent(src.split("/").pop()!)}`
+    : src;
+export interface GlossaryCandidate {
+  term: string;
+  translation: string;
+  note: string;
+}
+export const suggestGlossary = async (
+  file: File,
+  glossaryId?: string,
+): Promise<GlossaryCandidate[]> => {
+  const form = new FormData();
+  form.append("file", file);
+  if (glossaryId) form.append("glossary_id", glossaryId);
+  return (
+    await apiClient.post("/api/glossary/draft", form, {
+      timeout: 180000,
+      headers: { "Content-Type": "multipart/form-data" },
+    })
+  ).data.candidates;
 };

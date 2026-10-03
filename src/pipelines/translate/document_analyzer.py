@@ -1,6 +1,7 @@
 """
 文档分析组件
 """
+
 from __future__ import annotations
 
 import json
@@ -9,6 +10,7 @@ import re
 
 from ...core.chunk_planner import TextChunk
 from ...domain.models.translation_models import DocumentProfile
+from ...domain.rules.document_sampling import sample_document
 from .langchain_compat import StrOutputParser
 from .prompt_builder import TranslationPromptBuilder
 
@@ -35,7 +37,7 @@ class DocumentAnalyzer:
             if len(unique_sections) >= self.config.analyst_max_sections:
                 break
 
-        excerpt = text[: self.config.analyst_max_chars]
+        excerpt = sample_document(text, self.config.analyst_max_chars)
         analyst_prompt = self.prompt_builder.build_analyst_prompt()
         chain = analyst_prompt | self.llm_analyst | StrOutputParser()
 
@@ -69,12 +71,10 @@ class DocumentAnalyzer:
         return DocumentProfile(
             summary=str(data.get("summary", "")).strip(),
             style_notes=[str(item).strip() for item in data.get("style_notes", []) if str(item).strip()][:4],
-            terminology_hints=[
-                str(item).strip()
-                for item in data.get("terminology_hints", [])
-                if str(item).strip()
-            ][: getattr(config, "analyst_max_term_hints", 12)],
-            section_overview=[
-                str(item).strip() for item in data.get("section_overview", []) if str(item).strip()
-            ][: getattr(config, "analyst_max_sections", 12)],
+            terminology_hints=[str(item).strip() for item in data.get("terminology_hints", []) if str(item).strip()][
+                : getattr(config, "analyst_max_term_hints", 12)
+            ],
+            section_overview=[str(item).strip() for item in data.get("section_overview", []) if str(item).strip()][
+                : getattr(config, "analyst_max_sections", 12)
+            ],
         )

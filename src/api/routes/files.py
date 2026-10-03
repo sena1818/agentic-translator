@@ -1,6 +1,9 @@
 """
 文件服务 API 路由
 """
+
+import asyncio
+import json
 import sys
 from pathlib import Path
 
@@ -11,7 +14,10 @@ from fastapi.responses import FileResponse
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 from src.pipelines.postprocess.export_service import ExportService
 
+from ...core.output_manager import OutputManager
 from ...domain.models.task_models import TaskStatus
+from ...domain.models.translation_models import TranslationResult
+from ...infrastructure.filesystem.task_files import TaskFiles, safe_id
 from ..database.db import Database
 
 router = APIRouter(prefix="/api/files", tags=["files"])
@@ -32,15 +38,26 @@ def _looks_bilingual_markdown(path: Path) -> bool:
     return "（双语对照）" in sample or "\n> " in sample and "\n---" in sample
 
 
-def _ensure_markdown_variants(task_id: str, bilingual_task: bool) -> tuple[Path, Path]:
+def _ensure_markdown_variants(task_id: str, bilingual_task: bool, result_dir=Path("data/results")) -> tuple[Path, Path]:
     """
     确保单语/双语 Markdown 结果文件存在。
     对历史任务执行一次就地迁移：
     - 旧的 {task_id}.md 若是双语文件，会复制为 .bilingual.md
     - 再从双语内容提取出真正的单语 .md
     """
-    mono_path = Path(f"data/results/{task_id}.md")
-    bilingual_path = Path(f"data/results/{task_id}.bilingual.md")
+    mono_path = result_dir / f"{task_id}.md"
+    bilingual_path = result_dir / f"{task_id}.bilingual.md"
+
+    records_path = result_dir / f"{task_id}.json"
+    if records_path.exists():
+        # 现代结果已有明确的块记录，不能用引用/分隔线猜测文件类型。
+        if not mono_path.exists() or (bilingual_task and not bilingual_path.exists()):
+            records = [TranslationResult(**item) for item in json.loads(records_path.read_text(encoding="utf-8"))]
+            if not mono_path.exists():
+                OutputManager.write_document(mono_path, task_id, records)
+            if bilingual_task and not bilingual_path.exists():
+                OutputManager.write_document(bilingual_path, task_id, records, True)
+        return mono_path, bilingual_path
 
     if bilingual_task:
         if bilingual_path.exists():
@@ -59,17 +76,13 @@ def _ensure_markdown_variants(task_id: str, bilingual_task: bool) -> tuple[Path,
         if source_bilingual.exists():
             if (not mono_path.exists()) or _looks_bilingual_markdown(mono_path):
                 mono_path.write_text(
-                    ExportService.strip_bilingual_markdown(
-                        source_bilingual.read_text(encoding="utf-8")
-                    ),
+                    ExportService.strip_bilingual_markdown(source_bilingual.read_text(encoding="utf-8")),
                     encoding="utf-8",
                 )
 
     elif not bilingual_task and not mono_path.exists() and bilingual_path.exists():
         mono_path.write_text(
-            ExportService.strip_bilingual_markdown(
-                bilingual_path.read_text(encoding="utf-8")
-            ),
+            ExportService.strip_bilingual_markdown(bilingual_path.read_text(encoding="utf-8")),
             encoding="utf-8",
         )
 
@@ -97,8 +110,13 @@ async def download_result(
         raise HTTPException(status_code=400, detail="不支持的结果类型")
 
     task = await db.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    result_dir = TaskFiles().artifacts(task)
     if task and task.status not in {TaskStatus.COMPLETED, TaskStatus.PARTIAL_SUCCESS}:
         raise HTTPException(status_code=400, detail="任务尚未完成，无法下载结果")
+    if format == "html" and not task.bilingual:
+        raise HTTPException(400, "仅双语任务支持 HTML 双栏导出")
     if task and variant == "bilingual" and not task.bilingual:
         raise HTTPException(status_code=400, detail="仅双语任务支持双语结果下载")
 
@@ -106,13 +124,14 @@ async def download_result(
 
     mono_path, bilingual_path = _ensure_markdown_variants(
         task_id=task_id,
-        bilingual_task=bool(task.bilingual) if task else False,
+        bilingual_task=bool(task.bilingual),
+        result_dir=result_dir,
     )
 
-    result_path = bilingual_path if variant == "bilingual" else mono_path
+    result_path = bilingual_path if variant == "bilingual" or format == "html" else mono_path
     if not result_path.exists():
-        if variant == "bilingual":
-            legacy_path = Path(f"data/results/{task_id}.md")
+        if variant == "bilingual" or format == "html":
+            legacy_path = result_dir / f"{task_id}.md"
             if legacy_path.exists():
                 result_path = legacy_path
             else:
@@ -125,24 +144,20 @@ async def download_result(
             raise HTTPException(status_code=400, detail="仅双语任务支持 HTML 双栏导出")
 
         # 导出为 HTML 双栏格式
-        html_path = Path(f"data/results/{task_id}.html")
+        html_path = result_dir / f"{task_id}.html"
 
         # 如果 HTML 不存在或 Markdown 更新了,重新生成
         if not html_path.exists() or html_path.stat().st_mtime < result_path.stat().st_mtime:
-            ExportService.export_bilingual_html(
-                str(result_path),
-                str(html_path),
-                title=f"翻译结果 - {task_id[:8]}"
+            await asyncio.to_thread(
+                ExportService.export_bilingual_html, str(result_path), str(html_path), title=f"翻译结果 - {task_id[:8]}"
             )
 
-        return FileResponse(
-            path=html_path,
-            filename=f"{base_name}.bilingual.html",
-            media_type="text/html"
-        )
+        return FileResponse(path=html_path, filename=f"{base_name}.bilingual.html", media_type="text/html")
 
     if format == "zip":
-        bundle_path = ExportService.create_assets_bundle(task_id=task_id)
+        bundle_path = await asyncio.to_thread(
+            ExportService.create_assets_bundle, task_id=task_id, results_dir=result_dir
+        )
         return FileResponse(
             path=bundle_path,
             filename=f"{base_name}.assets.zip",
@@ -153,12 +168,12 @@ async def download_result(
     return FileResponse(
         path=result_path,
         filename=f"{base_name}{'.bilingual' if variant == 'bilingual' else '.cn'}.md",
-        media_type="text/markdown"
+        media_type="text/markdown",
     )
 
 
 @router.get("/results/{task_id}/preview")
-async def preview_result(task_id: str):
+async def preview_result(task_id: str, skip: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=100)):
     """
     双语对照预览（只读 JSON）
 
@@ -173,33 +188,64 @@ async def preview_result(task_id: str):
     if not task.bilingual:
         raise HTTPException(status_code=400, detail="仅双语任务支持双语预览")
 
-    _, bilingual_path = _ensure_markdown_variants(task_id=task_id, bilingual_task=True)
+    result_dir = TaskFiles().artifacts(task)
+    _, bilingual_path = _ensure_markdown_variants(task_id=task_id, bilingual_task=True, result_dir=result_dir)
     if not bilingual_path.exists():
-        legacy_path = Path(f"data/results/{task_id}.md")
+        legacy_path = result_dir / f"{task_id}.md"
         if legacy_path.exists():
             bilingual_path = legacy_path
         else:
             raise HTTPException(status_code=404, detail="双语结果文件不存在")
 
-    paragraphs = ExportService.parse_bilingual_markdown(
-        bilingual_path.read_text(encoding="utf-8")
+    records = TaskFiles().records(task)
+    from src.pipelines.postprocess.export_service import BilingualParagraph
+
+    paragraphs = (
+        [BilingualParagraph(item["original"], item["translation"]) for item in records]
+        if records
+        else ExportService.parse_bilingual_markdown(bilingual_path.read_text(encoding="utf-8"))
     )
     return {
         "task_id": task_id,
         "filename": task.filename,
         "bilingual": True,
         "count": len(paragraphs),
-        "paragraphs": [
-            {"source": p.source, "translation": p.translation} for p in paragraphs
-        ],
+        "paragraphs": [{"source": p.source, "translation": p.translation} for p in paragraphs[skip : skip + limit]],
     }
 
 
 @router.get("/uploads/{filename}")
 async def get_upload_file(filename: str):
     """获取上传的原始文件"""
-    file_path = Path(f"data/uploads/{filename}")
+    if Path(filename).name != filename or "\\" in filename:
+        raise HTTPException(400, "文件名无效")
+    file_path = Path("data/uploads") / filename
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="文件不存在")
 
     return FileResponse(path=file_path)
+
+
+@router.get("/results/{task_id}/assets/{filename}")
+async def result_asset(task_id: str, filename: str):
+    safe_id(task_id)
+    if Path(filename).name != filename or "\\" in filename:
+        raise HTTPException(400, "资源文件名无效")
+    task = await db.get_task(task_id)
+    if task is None or task.status not in {TaskStatus.COMPLETED, TaskStatus.PARTIAL_SUCCESS}:
+        raise HTTPException(404, "结果不存在")
+    root = (TaskFiles().artifacts(task) / "assets" / task_id).resolve()
+    path = (root / filename).resolve()
+    if (
+        not path.is_relative_to(root)
+        or not path.is_file()
+        or path.suffix.lower() not in {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"}
+    ):
+        raise HTTPException(404, "资源不存在")
+    return FileResponse(
+        path,
+        headers={
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "sandbox; default-src 'none'; style-src 'unsafe-inline'",
+        },
+    )

@@ -6,6 +6,7 @@
 
 密钥：选手用 SILICONFLOW_API_KEY，裁判（Gemini）用 GOOGLE_API_KEY。
 """
+
 from __future__ import annotations
 
 import argparse
@@ -58,6 +59,7 @@ def load_samples(dataset_path: Path) -> list[EvalSample]:
 
 # ---- 真实评测：选手 = ChatModelFactory，裁判 = Gemini ----
 
+
 def build_real_factory_builder(config):
     def builder(collector: UsageMetadataCollector):
         return InstrumentedModelFactory(ChatModelFactory(config), collector)
@@ -75,6 +77,7 @@ def build_gemini_judge(model_name: str, prompt_template: str, collector: UsageMe
 
 # ---- 冒烟评测（--dry-run）：假模型 + 假裁判，机械跑通同一流水线 ----
 
+
 def _dry_run_translate(prompt_value):
     text = prompt_value.to_string() if hasattr(prompt_value, "to_string") else str(prompt_value)
     match = _SOURCE_RE.search(text)
@@ -83,10 +86,7 @@ def _dry_run_translate(prompt_value):
 
 
 def _dry_run_analyst(_prompt_value):
-    return (
-        '{"summary": "冒烟文档", "style_notes": ["学术"], '
-        '"terminology_hints": [], "section_overview": ["Root"]}'
-    )
+    return '{"summary": "冒烟文档", "style_notes": ["学术"], "terminology_hints": [], "section_overview": ["Root"]}'
 
 
 def _dry_run_repair(_prompt_value):
@@ -203,7 +203,8 @@ def main(argv: list[str] | None = None) -> int:
     (args.out / "report.json").write_text(report.to_json(), encoding="utf-8")
 
     print(f"评测完成 → {args.out / 'report.md'}")
-    print(f"一致率 {report.consistency.rate:.2%}（门槛 {report.consistency.threshold:.0%}）→ 决策 {report.consistency.decision}")
+    rate = f"{report.consistency.rate:.2%}" if report.consistency.rate is not None else "样本不足"
+    print(f"一致率 {rate}（门槛 {report.consistency.threshold:.0%}）→ 决策 {report.consistency.decision}")
     return 0
 
 

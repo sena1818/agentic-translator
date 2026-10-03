@@ -32,3 +32,5 @@ python-multipart>=0.0.6
 
 # MCP Server (stdio 传输，暴露翻译能力给 Claude Desktop 等 MCP 客户端)
 mcp>=1.2.0
+
+markdown-it-py>=3.0,<5

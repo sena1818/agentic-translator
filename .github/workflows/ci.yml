@@ -28,6 +28,9 @@ jobs:
       - name: Ruff lint
         run: ruff check .
 
+      - name: Generated API contract
+        run: python scripts/generate_api_types.py --check
+
       - name: Pytest
         run: pytest
 
@@ -47,6 +50,14 @@ jobs:
       - name: Install dependencies
         working-directory: frontend
         run: npm ci
+
+      - name: Frontend lint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Frontend tests
+        working-directory: frontend
+        run: npm test
 
       - name: Build
         working-directory: frontend

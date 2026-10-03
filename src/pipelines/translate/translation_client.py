@@ -6,6 +6,7 @@
 - 执行重试
 - 清理输出
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -42,19 +43,16 @@ class TranslationClient:
         chunk: TextChunk,
         document_profile: DocumentProfile,
     ) -> tuple[str, int, float]:
-        await self.rate_limiter.acquire()
-
         prompt = self.prompt_builder.build_translation_prompt(chunk, document_profile)
         chain = prompt | self.llm_translator | StrOutputParser()
         max_retries = self.config.get("api.translator.max_retries", 3)
 
-        relevant_glossary = select_relevant_glossary(
-            self.glossary, chunk.text, chunk.context_text
-        )
+        relevant_glossary = select_relevant_glossary(self.glossary, chunk.text, chunk.context_text)
 
         for retry in range(max_retries + 1):
             try:
-                start_time = time.time()
+                await self.rate_limiter.acquire()
+                start_time = time.monotonic()
                 translation = await chain.ainvoke(
                     {
                         "document_profile": document_profile.to_prompt_text(),
@@ -65,10 +63,13 @@ class TranslationClient:
                     }
                 )
                 translation = self.clean_output(translation)
-                duration = time.time() - start_time
+                duration = time.monotonic() - start_time
                 return translation, retry, duration
-            except Exception:
+            except Exception as exc:
+                status = getattr(exc, "status_code", None)
+                if status is not None and 400 <= status < 500 and status not in {408, 409, 429}:
+                    raise
                 if retry < max_retries:
-                    await asyncio.sleep(2 ** retry)
+                    await asyncio.sleep(2**retry)
                 else:
                     raise

@@ -66,4 +66,4 @@ LangGraph 与 Native 两引擎共用同一批组件（prompt_builder / translati
 ## 7. RAG 门槛决策
 
 见 `../adr/0002-rag-translation-memory-threshold.md`：统计术语表外重复短语的译法一致率，
-≥ 90% 写 ADR 记录不做，< 90% 另立 sqlite-vec 翻译记忆的 PRD。一致率算法见 `src/evaluation/consistency.py`。
+没有候选短语时报告 `rate=null`、`insufficient-data`，不作架构结论。存在候选时，≥ 90% 写 ADR 记录不做，< 90% 另立 sqlite-vec 翻译记忆的 PRD。一致率算法见 `src/evaluation/consistency.py`。

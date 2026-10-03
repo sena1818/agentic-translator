@@ -1,6 +1,7 @@
 """
 速率限制器基础设施
 """
+
 import asyncio
 import time
 
@@ -14,12 +15,12 @@ class RateLimiter:
         self.rate = rate
         self.per = per
         self.allowance = rate
-        self.last_check = time.time()
+        self.last_check = time.monotonic()
         self.lock = asyncio.Lock()
 
     async def acquire(self):
         async with self.lock:
-            current = time.time()
+            current = time.monotonic()
             time_passed = current - self.last_check
             self.last_check = current
 
@@ -30,6 +31,7 @@ class RateLimiter:
             if self.allowance < 1.0:
                 sleep_time = (1.0 - self.allowance) * (self.per / self.rate)
                 await asyncio.sleep(sleep_time)
+                self.last_check = time.monotonic()
                 self.allowance = 0.0
             else:
                 self.allowance -= 1.0

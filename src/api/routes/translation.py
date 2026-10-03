@@ -2,15 +2,17 @@
 翻译任务 API 路由
 """
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from pydantic import BaseModel, Field
 
+from ..models.task_response import TaskResponse
 from ..services.translation_service import TranslationService
 
 router = APIRouter(prefix="/api/translation", tags=["translation"])
 service = TranslationService()
 
 
-@router.post("/tasks", status_code=201)
+@router.post("/tasks", status_code=201, response_model=TaskResponse)
 async def create_translation_task(
     file: UploadFile = File(...),
     glossary_id: str | None = Form(None),
@@ -32,13 +34,13 @@ async def create_translation_task(
         "created_at": "2026-01-16T10:30:00"
     }
     """
-    content = await file.read()
+    content = await file.read(50 * 1024 * 1024 + 1)
     task = await service.create_task(content, file.filename, glossary_id, bilingual)
 
     return task.to_dict()
 
 
-@router.get("/tasks/{task_id}")
+@router.get("/tasks/{task_id}", response_model=TaskResponse)
 async def get_task_status(task_id: str):
     """
     查询任务状态 (轮询端点)
@@ -65,7 +67,9 @@ async def get_task_status(task_id: str):
 
 
 @router.get("/tasks")
-async def list_tasks(skip: int = 0, limit: int = 20):
+async def list_tasks(
+    skip: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=100), search: str = "", status: str | None = None
+):
     """
     获取任务列表
 
@@ -75,8 +79,8 @@ async def list_tasks(skip: int = 0, limit: int = 20):
         "total": 100
     }
     """
-    tasks, total = await service.list_tasks(skip, limit)
-    return {"tasks": [t.to_dict() for t in tasks], "total": total}
+    tasks, total = await service.list_tasks(skip, limit, search=search, status=status)
+    return {"tasks": [TaskResponse.model_validate(t.to_dict()).model_dump() for t in tasks], "total": total, "stats": await service.db.task_stats()}
 
 
 @router.delete("/tasks/{task_id}")
@@ -86,3 +90,37 @@ async def delete_task(task_id: str):
     if not success:
         raise HTTPException(status_code=404, detail="任务不存在或无法删除")
     return {"message": "删除成功"}
+
+
+class RetryRequest(BaseModel):
+    indices: list[int] | None = None
+
+
+class EditRequest(BaseModel):
+    translation: str = Field(min_length=1, max_length=100000)
+    revision: str | None = None
+
+
+@router.post("/tasks/{task_id}/cancel")
+async def cancel_task(task_id: str):
+    result = await service.cancel_task(task_id)
+    if result is None:
+        raise HTTPException(404, "任务不存在")
+    if not result:
+        raise HTTPException(409, "任务已结束，无法取消")
+    return {"message": "任务已取消"}
+
+
+@router.post("/tasks/{task_id}/retry", response_model=TaskResponse)
+async def retry_task(task_id: str, payload: RetryRequest):
+    return (await service.retry_task(task_id, payload.indices)).to_dict()
+
+
+@router.get("/tasks/{task_id}/chunks")
+async def get_chunks(task_id: str, skip: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=100)):
+    return await service.get_chunks(task_id, skip, limit)
+
+
+@router.put("/tasks/{task_id}/chunks/{index}")
+async def edit_chunk(task_id: str, index: int, payload: EditRequest):
+    return await service.edit_chunk(task_id, index, payload.translation, payload.revision)

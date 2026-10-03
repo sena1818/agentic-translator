@@ -18,6 +18,7 @@
    有足够长的公共中文子串即判为一致。一致率 = 一致短语数 / 候选短语数。
 
 2. **门槛 0.90**：
+   - 没有候选短语 → `rate=null`、`decision=insufficient-data`，不能推断为 100% 一致或据此决策。
    - 一致率 **≥ 90%** → **不立项 RAG**，由本 ADR 记录不做的理由（单块翻译已足够自洽，
      RAG 的复杂度与延迟不划算）。
    - 一致率 **< 90%** → 重复短语译法飘忽，**另立文档内翻译记忆（sqlite-vec）的 PRD**。
@@ -41,6 +42,6 @@
 
 ## 待办（回填真实数据）
 
-当前 `.env` 缺少可用的 `SILICONFLOW_API_KEY`（选手）与 `GOOGLE_API_KEY`（裁判），真实评测未能执行。
+当前提交的报告仅为假模型冒烟验证；本轮未运行付费选手/裁判评测。
 补齐密钥后运行 `translator-eval --out docs/evals/results`，据 `report.json` 的 `consistency.rate` 与
 `consistency.decision` 回填本节并定稿状态。

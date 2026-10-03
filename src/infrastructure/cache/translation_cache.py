@@ -1,6 +1,7 @@
 """
 翻译缓存基础设施
 """
+
 from __future__ import annotations
 
 import json
@@ -52,6 +53,11 @@ class TranslationCache:
                     created_at TEXT NOT NULL
                 )
                 """
+            )
+            await db.commit()
+
+            await db.execute(
+                "CREATE TABLE IF NOT EXISTS document_profiles (profile_key TEXT PRIMARY KEY, payload TEXT NOT NULL)"
             )
             await db.commit()
 
@@ -109,5 +115,20 @@ class TranslationCache:
                     int(repaired),
                     datetime.now(timezone.utc).isoformat(),
                 ),
+            )
+            await db.commit()
+
+    async def get_profile(self, key):
+        await self.initialize()
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute("SELECT payload FROM document_profiles WHERE profile_key=?", (key,))
+            row = await cursor.fetchone()
+        return json.loads(row[0]) if row else None
+
+    async def set_profile(self, key, payload):
+        await self.initialize()
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "INSERT OR REPLACE INTO document_profiles VALUES (?,?)", (key, json.dumps(payload, ensure_ascii=False))
             )
             await db.commit()

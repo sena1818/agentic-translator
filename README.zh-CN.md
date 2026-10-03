@@ -1,6 +1,6 @@
 # agentic-translator
 
-**面向高密度、术语繁重的书籍与论文的 Agentic 翻译系统 —— 输入 PDF/EPUB/Markdown，输出可直接出版的中文 Markdown。**
+**面向高密度、术语繁重的书籍与论文的 Agentic 翻译系统 —— 输入 PDF/EPUB/Markdown，输出可审校的中文 Markdown。**
 
 不绑定单一领域：自定义一份术语表，即可翻译任何让朴素"切块 + Prompt"方式失效的专业文本 —— 后现代哲学（Nick Land 的 CCRU 著作、Reza Negarestani 的《Cyclonopedia》）、机器学习论文，以及任何在 300+ 个块之间绝不容许术语漂移的场景。
 
@@ -10,29 +10,29 @@
 
 [English](README.md) | **简体中文**
 
-![Web 界面](docs/images/web-ui.png)
+![Web 界面](docs/images/review-workspace.jpg)
 
 ## 为什么是 Agentic？
 
 单条 Prompt 装不下一整本书。本系统把工作拆给三个 LLM 角色，由**文档级 LangGraph StateGraph** 统一编排：
 
-- **分析员（Analyst）** —— 通读全文一次，产出全局文档画像（摘要、风格、术语提示），注入每个块的翻译 Prompt。
+- **分析员（Analyst）** —— 在固定预算内采样文档首、中、尾，产出全局文档画像（摘要、风格、术语提示），注入每个块的翻译 Prompt。
 - **翻译员（Translator）** —— 并发翻译每个块，受术语表与文档画像双重约束。
 - **审校员（Reviewer）** —— *只*对质检不通过的块介入（未翻译残留、术语遗漏、Markdown 结构损坏），成本与风险成正比。
 
-这套架构是否真的有效，由可复现的[评测体系](#评测)回答 —— 包括一个由数据驱动的"**不做** RAG 翻译记忆"的决策（[ADR-0002](docs/adr/0002-rag-translation-memory-threshold.md)）。
+这套架构是否真的有效，由可复现的[评测体系](#评测)回答 —— 并以重复短语一致率决定是否需要 RAG 翻译记忆（无候选短语时报告样本不足）（[ADR-0002](docs/adr/0002-rag-translation-memory-threshold.md)）。
 
 ## 核心特性
 
 - 🕸️ **文档级 LangGraph 引擎** —— 分析员 → Send API fan-out → 逐块翻译/质检/修复 → 汇总，全部建在一张 StateGraph 里（[ADR-0001](docs/adr/0001-langgraph-document-level-graph.md)）；`native` asyncio 引擎保留在配置开关后面用于 A/B 对照
-- 🚀 **异步并发** —— 可配置并发数 + Token Bucket 限流 + 指数退避重试
+- 🚀 **异步并发** —— 按账号共享的跨 Worker 并发与 RPM 预算 + 指数退避重试
 - 🧩 **章节感知分块** —— 沿 Markdown 标题规划 chunk，携带稳定的结构化 chunk ID
 - 📚 **术语表强约束** —— JSON 术语表注入 Prompt，并由质检器校验一致性
 - 🛡️ **选择性修复** —— 质检标记高风险块，只有这些块触发审校员一次性重译
 - 💾 **Chunk 级 SQLite 缓存** —— 天然支持断点续传；缓存键包含模型、术语表、Prompt 版本与文档画像指纹
 - ⚠️ **失败隔离** —— 单块失败写入占位符，绝不阻塞整个文档
 - 🌗 **双语对照导出** —— 原文/译文交替 Markdown 与双栏 HTML
-- 🌐 **Web 管理界面** —— React + FastAPI，SQLite 任务队列，worker 可横向扩展
+- 🌐 **Web 管理界面** —— React + FastAPI，SQLite 任务队列，支持取消、恢复、逐块重译及人工编辑
 - 🔌 **MCP Server** —— stdio 传输，把翻译、任务管理、术语表工具暴露给 Claude Desktop 等 MCP 客户端
 - 🔭 **可观测性** —— 可选接入 Langfuse，追踪完整 Agent 调用链与逐块 token 消耗，未配置时自动降级为无操作
 
@@ -56,6 +56,14 @@ docker compose up --build
 ```
 
 **api** 服务对外提供 Web 界面与 REST API，**worker** 服务独立消费翻译队列，两者共用同一镜像。任务库、翻译缓存、上传文件与结果全部落在命名数据卷（`translator-data` / `translator-logs`），`docker compose down` 后再 `up` 数据不丢；彻底清空用 `down -v`。
+
+默认镜像安装 Pandoc，支持 Markdown/EPUB。PDF 需要较大的 Marker 模型依赖，可运行 `ENABLE_PDF=1 docker compose build` 后 `docker compose up`。界面依据服务器实际安装的工具显示可用格式。
+
+## 翻译与审校工作流
+
+上传文件后可进入任务地址查看转换、分析、翻译和导出阶段；列表支持搜索、状态筛选和分页。任务完成后查看每块原文、译文和质量问题，编辑译文会同步更新 Markdown/HTML 下载；失败块或指定块可单独重译，保留其他已完成的块与人工修改。取消会停止当前执行，恢复仍使用创建时的配置和术语表快照。
+
+执行租约和版本校验隔离多 Worker 的结果发布，避免取消或过期执行覆盖新结果。架构依据见 [ADR-0003](docs/adr/0003-task-leases-and-review-artifacts.md)。
 
 ## 快速开始（本地）
 
@@ -102,14 +110,14 @@ python run_worker.py --processes 4 --parallel-tasks 2  # 终端 2：worker 集�
 │  translate.py (CLI)   src/api (FastAPI + worker)           │
 │  src/interfaces/mcp (MCP stdio server)                     │
 ├────────────────────────── 流水线 ──────────────────────────┤
-│  src/pipelines: ingest → preprocess → translate →          │
+│  src/pipelines: preprocess → translate →          │
 │  postprocess。translate/ 内含两个引擎：                     │
 │    graph_engine.py（LangGraph，默认）                       │
 │    batch_orchestrator.py（native asyncio，过渡期保留）      │
 │  两者共用：prompt_builder / translation_client /            │
 │  quality_pipeline / document_analyzer                      │
 ├──────────────────────── 领域与核心 ─────────────────────────┤
-│  src/domain: models、contracts、rules（纯逻辑，无 I/O）      │
+│  src/domain: models、rules（纯逻辑，无 I/O）      │
 │  src/core: chunk_planner、translation_cache、rate_limiter、 │
 │            output_manager（顺序流式写盘）、validator         │
 ├──────────────────────── 基础设施 ──────────────────────────┤
@@ -232,9 +240,11 @@ observability:
 pip install -e ".[dev]"   # 或 pip install -r requirements.txt
 ruff check .              # lint
 pytest                    # 单元 + 集成测试
+python scripts/generate_api_types.py --check
+cd frontend && npm ci && npm run lint && npm test && npm run build
 ```
 
-CI 在每次 push 时运行 Ruff、pytest 与前端构建（[ci.yml](.github/workflows/ci.yml)）。
+CI 在每次 push 时运行 Ruff、pytest、前端契约检查、前端测试与构建（[ci.yml](.github/workflows/ci.yml)）。
 
 更多文档：[CONTEXT.md](CONTEXT.md)（领域词汇表）· [docs/adr/](docs/adr/)（架构决策记录）· [docs/guides/](docs/guides/)（使用指南）。
 

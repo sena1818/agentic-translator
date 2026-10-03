@@ -4,6 +4,7 @@
 按 PRD 的测试接缝：注入符合 Runnable 协议的假裁判验证打分解析与汇总；用合成对齐语料
 验证一致率与 RAG 门槛决策。全部不触网、不需密钥。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -28,6 +29,7 @@ from src.evaluation.report import CostSummary, EvalReport, render_comparison_tab
 
 # ---------- parse_scores ----------
 
+
 def test_parse_scores_plain_json():
     scores = parse_scores('{"accuracy": 5, "fluency": 4, "terminology": 3, "rationale": "ok"}')
     assert (scores.accuracy, scores.fluency, scores.terminology) == (5.0, 4.0, 3.0)
@@ -35,7 +37,7 @@ def test_parse_scores_plain_json():
 
 
 def test_parse_scores_fenced_and_surrounding_text():
-    raw = "这是我的评价：\n```json\n{\"accuracy\": 4, \"fluency\": 5, \"terminology\": 4}\n```\n完毕"
+    raw = '这是我的评价：\n```json\n{"accuracy": 4, "fluency": 5, "terminology": 4}\n```\n完毕'
     scores = parse_scores(raw)
     assert (scores.accuracy, scores.fluency, scores.terminology) == (4.0, 5.0, 4.0)
 
@@ -43,7 +45,7 @@ def test_parse_scores_fenced_and_surrounding_text():
 def test_parse_scores_clamps_out_of_range():
     scores = parse_scores('{"accuracy": 9, "fluency": 0, "terminology": 3}')
     assert scores.accuracy == 5.0  # 上限夹取
-    assert scores.fluency == 1.0   # 下限夹取
+    assert scores.fluency == 1.0  # 下限夹取
 
 
 def test_parse_scores_missing_dimension_falls_back_to_midpoint():
@@ -57,6 +59,7 @@ def test_parse_scores_without_json_raises():
 
 
 # ---------- TranslationJudge ----------
+
 
 def _sample() -> EvalSample:
     return EvalSample(id="s1", kind="paper", source_text="reward model", glossary={"reward model": "奖励模型"})
@@ -93,6 +96,7 @@ def test_judge_prompt_fills_placeholders():
 
 # ---------- aggregation ----------
 
+
 def test_aggregate_variant_means_and_pairing():
     runs = [
         VariantRun("langgraph", "s1", "t1", total_tokens=100, latency_s=2.0),
@@ -120,6 +124,7 @@ def test_build_comparison_groups_variants():
 
 
 # ---------- consistency / RAG 门槛 ----------
+
 
 def _corpus() -> list[AlignedSegment]:
     return [
@@ -149,10 +154,10 @@ def test_consistency_glossary_excludes_covered_phrase():
     assert report.total_phrases == 1
 
 
-def test_consistency_empty_corpus_is_no_rag():
+def test_consistency_empty_corpus_is_insufficient_data():
     report = compute_consistency([], glossary={}, threshold=0.90)
-    assert report.rate == 1.0
-    assert report.decision == "no-rag"
+    assert report.rate is None
+    assert report.decision == "insufficient-data"
 
 
 def test_consistency_skips_function_word_grams():
@@ -164,6 +169,7 @@ def test_consistency_skips_function_word_grams():
 
 
 # ---------- report 渲染 ----------
+
 
 def test_render_comparison_table_contains_labels():
     agg = aggregate_variant(
@@ -180,7 +186,8 @@ def test_render_comparison_table_contains_labels():
 
 def test_render_report_includes_decision_and_cost():
     agg = aggregate_variant(
-        "langgraph", "LangGraph",
+        "langgraph",
+        "LangGraph",
         [VariantRun("langgraph", "s1", "t", total_tokens=10, latency_s=1.0)],
         [JudgeVerdict("s1", DimensionScores(4, 4, 4))],
     )

@@ -12,6 +12,7 @@
    有足够长的公共中文子串 → 判为译法一致，否则不一致；
 4. 一致率 = 一致短语数 / 候选短语数。
 """
+
 from __future__ import annotations
 
 import re
@@ -24,9 +25,38 @@ _SENTENCE_SPLIT_RE = re.compile(r"[.!?;:\n]+")
 
 # 只由停用词构成的短语没有指纹价值，剔除
 _STOPWORDS = {
-    "the", "a", "an", "of", "to", "in", "on", "for", "and", "or", "but", "with",
-    "as", "at", "by", "is", "are", "was", "were", "be", "been", "it", "its",
-    "this", "that", "these", "those", "from", "into", "than", "then", "so",
+    "the",
+    "a",
+    "an",
+    "of",
+    "to",
+    "in",
+    "on",
+    "for",
+    "and",
+    "or",
+    "but",
+    "with",
+    "as",
+    "at",
+    "by",
+    "is",
+    "are",
+    "was",
+    "were",
+    "be",
+    "been",
+    "it",
+    "its",
+    "this",
+    "that",
+    "these",
+    "those",
+    "from",
+    "into",
+    "than",
+    "then",
+    "so",
 }
 
 
@@ -52,7 +82,7 @@ class PhraseConsistency:
 class ConsistencyReport:
     """一致率统计与 RAG 门槛决策。"""
 
-    rate: float
+    rate: float | None
     threshold: float
     total_phrases: int
     consistent_phrases: int
@@ -108,7 +138,7 @@ def _longest_common_substring(a: str, b: str) -> str:
                     best_len = curr[j]
                     best_end = i
         prev = curr
-    return a[best_end - best_len:best_end]
+    return a[best_end - best_len : best_end]
 
 
 def _common_cjk_signature(translations: list[str], min_len: int) -> str:
@@ -140,7 +170,7 @@ def _candidate_phrases(
             tokens = _tokenize(sentence)
             for n in range(min_n, max_n + 1):
                 for start in range(len(tokens) - n + 1):
-                    gram_tokens = tokens[start:start + n]
+                    gram_tokens = tokens[start : start + n]
                     # 首尾为停用词的 n-gram（如 "the desert"、"not the"）多是虚词残片，
                     # 对翻译记忆无价值且会虚高一致率，剔除
                     if gram_tokens[0] in _STOPWORDS or gram_tokens[-1] in _STOPWORDS:
@@ -163,10 +193,7 @@ def _drop_nested(phrase_segments: dict[str, set[int]]) -> dict[str, set[int]]:
     phrases = sorted(phrase_segments, key=len, reverse=True)
     for phrase in phrases:
         segs = phrase_segments[phrase]
-        contained = any(
-            phrase != longer and phrase in longer and phrase_segments[longer] == segs
-            for longer in kept
-        )
+        contained = any(phrase != longer and phrase in longer and phrase_segments[longer] == segs for longer in kept)
         if not contained:
             kept[phrase] = segs
     return kept
@@ -184,7 +211,7 @@ def compute_consistency(
 ) -> ConsistencyReport:
     """计算术语表外重复短语的译法一致率并给出 RAG 门槛决策。
 
-    无候选短语时（语料太小或全被术语表覆盖）视为无飘忽风险，一致率记为 1.0。
+    无候选短语时标记样本不足，不输出质量结论。
     """
     glossary_terms = _glossary_terms(glossary or {})
     candidates = _candidate_phrases(segments, glossary_terms, min_n, max_n, min_occurrences)
@@ -204,8 +231,8 @@ def compute_consistency(
 
     total = len(phrase_reports)
     consistent = sum(1 for p in phrase_reports if p.consistent)
-    rate = round(consistent / total, 4) if total else 1.0
-    decision = "no-rag" if rate >= threshold else "build-rag"
+    rate = round(consistent / total, 4) if total else None
+    decision = "insufficient-data" if rate is None else ("no-rag" if rate >= threshold else "build-rag")
 
     return ConsistencyReport(
         rate=rate,

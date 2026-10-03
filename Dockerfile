@@ -22,9 +22,14 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+RUN apt-get update && apt-get install -y --no-install-recommends pandoc && rm -rf /var/lib/apt/lists/*
+# PDF 转换的模型依赖较大，可按需构建；网站只开放已安装的格式。
+ARG ENABLE_PDF=0
+
 # 仅安装运行期依赖
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
+RUN if [ "$ENABLE_PDF" = "1" ]; then pip install --no-cache-dir marker-pdf; fi
 
 # 应用源码与配置
 COPY src/ ./src/

@@ -1,6 +1,7 @@
 """
 翻译质量校验器
 """
+
 from __future__ import annotations
 
 import re
@@ -61,7 +62,20 @@ class TranslationValidator:
     ) -> QualityReport:
         issues: list[QualityIssue] = []
 
-        issues.extend(self._check_untranslated_english(translation))
+        if original_text.strip() and not translation.strip():
+            issues.append(QualityIssue("empty", "high", "译文为空"))
+        # 数字和公式属于需要保真的内容，代码和 URL 不参与自然语言残留检查。
+        prose = re.sub(r"```[\s\S]*?```|`[^`]*`|https?://\S+", "", translation)
+        issues.extend(self._check_untranslated_english(prose))
+        numbers = set(re.findall(r"(?<![\w])\d+(?:[.,]\d+)*(?![\w])", original_text))
+        missing = numbers - set(re.findall(r"(?<![\w])\d+(?:[.,]\d+)*(?![\w])", translation))
+        if missing:
+            issues.append(QualityIssue("fidelity", "medium", "缺少原文数字: " + ", ".join(sorted(missing))))
+        formulas = re.findall(r"\$\$[\s\S]*?\$\$|(?<!\$)\$[^$\n]+\$", original_text)
+        if any(formula not in translation for formula in formulas):
+            issues.append(QualityIssue("fidelity", "high", "原文公式发生变化或缺失"))
+        if len(original_text) > 300 and len(translation.strip()) < 20:
+            issues.append(QualityIssue("truncated", "high", "译文疑似截断"))
         issues.extend(self._check_glossary(original_text, translation, glossary))
         issues.extend(self._check_markdown_structure(original_text, translation))
         issues.extend(self._check_repetition(translation))
@@ -70,7 +84,7 @@ class TranslationValidator:
 
     def should_repair(self, report: QualityReport) -> bool:
         """是否值得触发修复"""
-        repairable_kinds = {"untranslated", "terminology", "markdown"}
+        repairable_kinds = {"untranslated", "terminology", "markdown", "empty", "fidelity", "truncated"}
         return any(issue.kind in repairable_kinds for issue in report.issues)
 
     def is_better(self, candidate: QualityReport, baseline: QualityReport) -> bool:

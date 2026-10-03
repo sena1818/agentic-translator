@@ -1,6 +1,7 @@
 """
 翻译领域模型
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -66,3 +67,10 @@ class TranslationResult:
     def __post_init__(self) -> None:
         if self.quality_report is None:
             self.quality_report = {}
+
+
+@dataclass
+class TranslationPipelineOutput:
+    chunks: list
+    results: list[TranslationResult]
+    engine: object

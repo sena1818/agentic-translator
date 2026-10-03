@@ -6,6 +6,7 @@
 - 输出管理器写入
 - chunk 并发调度
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -32,13 +33,18 @@ class TranslationBatchOrchestrator:
         bilingual: bool,
         progress_callback,
         process_chunk,
+        skip_cache_indices=None,
     ) -> list[TranslationResult]:
         output_manager = OutputManager(str(output_path), bilingual=bilingual)
         tasks = []
         results: list[TranslationResult] = []
 
         for chunk in chunks:
-            cache_entry = await self.cache.get(self.build_cache_key(chunk))
+            cache_entry = (
+                None
+                if chunk.index in (skip_cache_indices or set())
+                else await self.cache.get(self.build_cache_key(chunk))
+            )
             if cache_entry:
                 cached_result = build_cached_result(chunk, cache_entry)
                 await output_manager.add_result(

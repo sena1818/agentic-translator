@@ -79,14 +79,17 @@ def test_partial_success_status_is_persisted():
             )
             await service.start_translation(task.task_id)
             saved = await service.get_task(task.task_id)
-            mono_content = (Path("data/results") / f"{task.task_id}.md").read_text(encoding="utf-8")
-            bilingual_content = (Path("data/results") / f"{task.task_id}.bilingual.md").read_text(encoding="utf-8")
+            mono_content = service.files.result(saved).read_text(encoding="utf-8")
+            bilingual_content = service.files.result(saved, True).read_text(encoding="utf-8")
             return task.task_id, saved, mono_content, bilingual_content
         finally:
             translation_service_module.TranslationEngine = original_engine
             translation_service_module.DocumentConverter = original_converter
 
             if task is not None:
+                import shutil
+
+                shutil.rmtree(Path("data/results/runs") / task.task_id, ignore_errors=True)
                 upload_path = Path("data/uploads") / f"{task.task_id}_service_case.md"
                 result_path = Path("data/results") / f"{task.task_id}.md"
                 bilingual_result_path = Path("data/results") / f"{task.task_id}.bilingual.md"
@@ -126,7 +129,7 @@ def test_reuses_existing_epub_markdown_after_interruption():
 
         try:
             task = await service.create_task(
-                file_content=b"placeholder epub bytes",
+                file_content=b"PK placeholder epub bytes",
                 filename="resume_case.epub",
                 bilingual=False,
             )
@@ -144,6 +147,9 @@ def test_reuses_existing_epub_markdown_after_interruption():
             translation_service_module.DocumentConverter = original_converter
 
             if task is not None:
+                import shutil
+
+                shutil.rmtree(Path("data/results/runs") / task.task_id, ignore_errors=True)
                 upload_path = Path("data/uploads") / f"{task.task_id}_resume_case.epub"
                 result_path = Path("data/results") / f"{task.task_id}.md"
                 temp_task_dir = Path("data/temp") / task.task_id

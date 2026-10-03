@@ -1,6 +1,6 @@
 {
   "meta": {
-    "date": "2026-07-13",
+    "date": "2026-10-03",
     "judge_model": "dry-run 假裁判",
     "candidate_model": "dry-run 假选手",
     "dataset": "dataset.json",
@@ -22,7 +22,7 @@
           "mean_terminology": 4.0,
           "mean_overall": 4.0,
           "total_tokens": 0,
-          "mean_latency_s": 0.029
+          "mean_latency_s": 0.141
         },
         {
           "variant": "native",
@@ -33,7 +33,7 @@
           "mean_terminology": 4.0,
           "mean_overall": 4.0,
           "total_tokens": 0,
-          "mean_latency_s": 0.006
+          "mean_latency_s": 0.098
         }
       ]
     },
@@ -50,7 +50,7 @@
           "mean_terminology": 4.0,
           "mean_overall": 4.0,
           "total_tokens": 0,
-          "mean_latency_s": 0.007
+          "mean_latency_s": 0.071
         },
         {
           "variant": "multi_off",
@@ -61,7 +61,7 @@
           "mean_terminology": 4.0,
           "mean_overall": 4.0,
           "total_tokens": 0,
-          "mean_latency_s": 0.005
+          "mean_latency_s": 0.055
         }
       ]
     },
@@ -78,7 +78,7 @@
           "mean_terminology": 4.0,
           "mean_overall": 4.0,
           "total_tokens": 0,
-          "mean_latency_s": 0.008
+          "mean_latency_s": 0.064
         },
         {
           "variant": "glossary_off",
@@ -89,17 +89,17 @@
           "mean_terminology": 4.0,
           "mean_overall": 4.0,
           "total_tokens": 0,
-          "mean_latency_s": 0.007
+          "mean_latency_s": 0.05
         }
       ]
     }
   ],
   "consistency": {
-    "rate": 1.0,
+    "rate": null,
     "threshold": 0.9,
     "total_phrases": 0,
     "consistent_phrases": 0,
-    "decision": "no-rag",
+    "decision": "insufficient-data",
     "phrases": []
   },
   "cost": {

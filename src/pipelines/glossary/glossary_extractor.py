@@ -5,6 +5,7 @@
 供用户审阅、修改后作为术语表使用。让「自定义术语表」从「必须手写」
 变为「一键起草」，是新定位（多领域、自带术语表）的关键一环。
 """
+
 from __future__ import annotations
 
 import json
@@ -12,6 +13,7 @@ import logging
 import re
 from dataclasses import dataclass
 
+from ...domain.rules.document_sampling import sample_document
 from ..translate.langchain_compat import StrOutputParser
 from ..translate.prompt_builder import TranslationPromptBuilder
 
@@ -61,7 +63,7 @@ class GlossaryExtractor:
             候选术语列表；失败时返回空列表（不抛异常，便于上层降级）。
         """
         existing = existing_glossary or {}
-        excerpt = text[: self.max_chars]
+        excerpt = sample_document(text, self.max_chars)
         prompt = self.prompt_builder.build_glossary_extraction_prompt()
         chain = prompt | self.llm | StrOutputParser()
 

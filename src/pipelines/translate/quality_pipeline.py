@@ -1,7 +1,10 @@
 """
 翻译质量检查与选择性修复组件
 """
+
 from __future__ import annotations
+
+import logging
 
 from ...core.chunk_planner import TextChunk
 from ...core.validator import QualityReport, TranslationValidator
@@ -9,6 +12,8 @@ from ...domain.models.translation_models import DocumentProfile
 from ...domain.rules.glossary_selection import select_relevant_glossary
 from .langchain_compat import StrOutputParser
 from .prompt_builder import TranslationPromptBuilder
+
+logger = logging.getLogger(__name__)
 
 
 class TranslationQualityPipeline:
@@ -50,12 +55,16 @@ class TranslationQualityPipeline:
         repaired = False
 
         for _ in range(self.config.max_fix_attempts):
-            candidate_translation = await self.repair(
-                chunk=chunk,
-                translation=best_translation,
-                report=best_report,
-                document_profile=document_profile,
-            )
+            try:
+                candidate_translation = await self.repair(
+                    chunk=chunk,
+                    translation=best_translation,
+                    report=best_report,
+                    document_profile=document_profile,
+                )
+            except Exception as exc:
+                logger.warning("审校失败，保留初译并等待人工复核: %s", exc)
+                break
             candidate_translation = self.clean_output(candidate_translation)
             candidate_report = self.validator.validate(chunk.text, candidate_translation, self.glossary)
 
@@ -82,15 +91,15 @@ class TranslationQualityPipeline:
         prompt = self.prompt_builder.build_repair_prompt()
         chain = prompt | self.llm_checker | StrOutputParser()
 
-        relevant_glossary = select_relevant_glossary(
-            self.glossary, chunk.text, chunk.context_text
-        )
+        relevant_glossary = select_relevant_glossary(self.glossary, chunk.text, chunk.context_text)
 
-        return await chain.ainvoke({
-            "section_title": " > ".join(chunk.section_path) if chunk.section_path else chunk.section_title,
-            "original": chunk.text,
-            "translation": translation,
-            "issues": issues_text,
-            "document_profile": document_profile.to_prompt_text(),
-            "glossary": "\n".join([f"- {en}: {zh}" for en, zh in relevant_glossary.items()]),
-        })
+        return await chain.ainvoke(
+            {
+                "section_title": " > ".join(chunk.section_path) if chunk.section_path else chunk.section_title,
+                "original": chunk.text,
+                "translation": translation,
+                "issues": issues_text,
+                "document_profile": document_profile.to_prompt_text(),
+                "glossary": "\n".join([f"- {en}: {zh}" for en, zh in relevant_glossary.items()]),
+            }
+        )

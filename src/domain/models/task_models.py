@@ -1,10 +1,11 @@
 """
 任务领域模型
 """
+
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-from datetime import datetime
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from enum import Enum
 
 
@@ -47,14 +48,23 @@ class TranslationTask:
     error: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    stage: str = "queued"
+    execution_id: str | None = None
+    worker_id: str | None = None
+    lease_until: str | None = None
+    artifact_dir: str | None = None
+    config_snapshot: dict = field(default_factory=dict)
+    glossary_snapshot: dict[str, str] = field(default_factory=dict)
+    retry_indices: list[int] = field(default_factory=list)
+    quality_summary: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.progress is None:
             self.progress = TaskProgress()
         if self.created_at is None:
-            self.created_at = datetime.now()
+            self.created_at = datetime.now(timezone.utc)
         if self.updated_at is None:
-            self.updated_at = datetime.now()
+            self.updated_at = datetime.now(timezone.utc)
 
     def to_dict(self) -> dict:
         return {
@@ -68,4 +78,8 @@ class TranslationTask:
             "error": self.error,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "stage": self.stage,
+            "execution_id": self.execution_id,
+            "artifact_dir": self.artifact_dir,
+            "quality_summary": self.quality_summary,
         }

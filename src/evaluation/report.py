@@ -1,4 +1,5 @@
 """把评测结果渲染成 Markdown 报告与原始 JSON。"""
+
 from __future__ import annotations
 
 import json
@@ -64,9 +65,11 @@ def render_comparison_table(group: ComparisonGroup) -> str:
 
 def render_consistency(report: ConsistencyReport) -> str:
     """渲染术语表外一致率与 RAG 决策。"""
+    rate_text = f"{report.rate:.2%}" if report.rate is not None else "样本不足"
     decision_text = {
-        "no-rag": f"一致率 {report.rate:.2%} ≥ 门槛 {report.threshold:.0%}，**不立项 RAG**，以 ADR 记录。",
-        "build-rag": f"一致率 {report.rate:.2%} < 门槛 {report.threshold:.0%}，**立项文档内翻译记忆（sqlite-vec）**，另起 PRD。",
+        "insufficient-data": "样本不足，暂不作 RAG 决策。",
+        "no-rag": f"一致率 {rate_text} ≥ 门槛 {report.threshold:.0%}，**不立项 RAG**，以 ADR 记录。",
+        "build-rag": f"一致率 {rate_text} < 门槛 {report.threshold:.0%}，**立项文档内翻译记忆（sqlite-vec）**，另起 PRD。",
     }[report.decision]
 
     lines = [
@@ -74,7 +77,7 @@ def render_consistency(report: ConsistencyReport) -> str:
         "",
         f"- 候选重复短语：{report.total_phrases}",
         f"- 译法一致短语：{report.consistent_phrases}",
-        f"- 一致率：**{report.rate:.2%}**（门槛 {report.threshold:.0%}）",
+        f"- 一致率：**{rate_text}**（门槛 {report.threshold:.0%}）",
         f"- 决策：{decision_text}",
     ]
     if report.total_phrases == 0:
@@ -117,9 +120,7 @@ def render_report(report: EvalReport) -> str:
     sections += ["", render_consistency(report.consistency)]
 
     cost = report.cost
-    cost_line = (
-        f"{cost.estimated_cost_rmb:.2f} 元" if cost.estimated_cost_rmb is not None else "（按实际单价填写）"
-    )
+    cost_line = f"{cost.estimated_cost_rmb:.2f} 元" if cost.estimated_cost_rmb is not None else "（按实际单价填写）"
     sections += [
         "",
         "## 成本",

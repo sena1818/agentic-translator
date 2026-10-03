@@ -2,9 +2,12 @@
 导出服务
 支持多种格式导出翻译结果
 """
+
 from __future__ import annotations
 
 import base64
+import html as html_escape
+import json
 import mimetypes
 import re
 import shutil
@@ -12,10 +15,13 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from markdown_it import MarkdownIt
+
 
 @dataclass
 class BilingualParagraph:
     """双语段落"""
+
     source: str
     translation: str
 
@@ -240,7 +246,7 @@ class ExportService:
         paragraphs = []
 
         # 按分隔线分割
-        sections = re.split(r'\n---+\n', content)
+        sections = re.split(r"\n---+\n", content)
 
         for section in sections:
             section = section.strip()
@@ -249,7 +255,7 @@ class ExportService:
 
             # 查找引用块 (原文) 和普通文本 (译文)
             # 引用块格式: > 开头的行
-            lines = section.split('\n')
+            lines = section.split("\n")
 
             source_lines = []
             translation_lines = []
@@ -258,14 +264,14 @@ class ExportService:
 
             for line in lines:
                 # 检查是否是引用行
-                if line.startswith('>'):
+                if line.startswith(">"):
                     # 如果已经结束引用区域，这行属于译文中的引用
                     if quote_ended:
                         translation_lines.append(line)
                     else:
                         in_quote = True
                         # 移除 > 前缀
-                        cleaned = line[1:].lstrip() if len(line) > 1 else ''
+                        cleaned = line[1:].lstrip() if len(line) > 1 else ""
                         source_lines.append(cleaned)
                 else:
                     # 非引用行
@@ -278,23 +284,26 @@ class ExportService:
                         if quote_ended:
                             translation_lines.append(line)
 
-            source = '\n'.join(source_lines).strip()
-            translation = '\n'.join(translation_lines).strip()
+            source = "\n".join(source_lines).strip()
+            translation = "\n".join(translation_lines).strip()
 
             # 过滤条件：
             # 1. 原文应该主要是英文（包含连续英文单词）或图片
             # 2. 译文应该主要是中文或图片
             # 3. 跳过元数据段落
-            has_english_source = bool(re.search(r'[a-zA-Z]{4,}', source))
-            has_chinese_translation = bool(re.search(r'[\u4e00-\u9fff]{2,}', translation))
-            has_image = '![' in source or '![' in translation
+            has_english_source = bool(re.search(r"[a-zA-Z]{4,}", source))
+            has_chinese_translation = bool(re.search(r"[\u4e00-\u9fff]{2,}", translation))
+            has_image = "![" in source or "![" in translation
 
             # 跳过元数据段落
-            is_metadata = '由 AI 自动翻译' in source or '源文件:' in source
+            is_metadata = "由 AI 自动翻译" in source or "源文件:" in source
 
-            if (source and translation and
-                ((has_english_source and has_chinese_translation) or has_image) and
-                not is_metadata):
+            if (
+                source
+                and translation
+                and ((has_english_source and has_chinese_translation) or has_image)
+                and not is_metadata
+            ):
                 paragraphs.append(BilingualParagraph(source=source, translation=translation))
 
         return paragraphs
@@ -315,65 +324,17 @@ class ExportService:
         Returns:
             HTML 文本
         """
-        # 转义 HTML 特殊字符
-        text = text.replace('&', '&amp;')
-        text = text.replace('<', '&lt;')
-        text = text.replace('>', '&gt;')
+        parser = MarkdownIt("commonmark", {"html": False}).enable("table")
 
-        # 标题
-        text = re.sub(r'^###### (.+)$', r'<h6>\1</h6>', text, flags=re.MULTILINE)
-        text = re.sub(r'^##### (.+)$', r'<h5>\1</h5>', text, flags=re.MULTILINE)
-        text = re.sub(r'^#### (.+)$', r'<h4>\1</h4>', text, flags=re.MULTILINE)
-        text = re.sub(r'^### (.+)$', r'<h3>\1</h3>', text, flags=re.MULTILINE)
-        text = re.sub(r'^## (.+)$', r'<h2>\1</h2>', text, flags=re.MULTILINE)
-        text = re.sub(r'^# (.+)$', r'<h1>\1</h1>', text, flags=re.MULTILINE)
+        def image_rule(tokens, index, options, env):
+            token = tokens[index]
+            return cls._render_image_tag(token.content, token.attrGet("src") or "", markdown_path, embed_images)
 
-        # 粗体和斜体
-        text = re.sub(r'\*\*\*(.+?)\*\*\*', r'<strong><em>\1</em></strong>', text)
-        text = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', text)
-        text = re.sub(r'\*(.+?)\*', r'<em>\1</em>', text)
-
-        # 图片（先于链接处理）
-        text = re.sub(
-            r'!\[([^\]]*)\]\(([^)]+)\)',
-            lambda match: cls._render_image_tag(
-                alt=match.group(1),
-                raw_path=match.group(2),
-                markdown_path=markdown_path,
-                embed_images=embed_images,
-            ),
-            text,
-        )
-
-        # 链接
-        text = re.sub(r'(?<!!)\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2">\1</a>', text)
-
-        # 行内代码
-        text = re.sub(r'`([^`]+)`', r'<code>\1</code>', text)
-
-        # 段落
-        paragraphs = text.split('\n\n')
-        html_paragraphs = []
-        for p in paragraphs:
-            p = p.strip()
-            if p:
-                # 如果已经是 HTML 标签开头,不包装
-                if p.startswith('<h') or p.startswith('<blockquote'):
-                    html_paragraphs.append(p)
-                else:
-                    # 将单个换行转为 <br>
-                    p = p.replace('\n', '<br>\n')
-                    html_paragraphs.append(f'<p>{p}</p>')
-
-        return '\n'.join(html_paragraphs)
+        parser.renderer.rules["image"] = image_rule
+        return parser.render(text)
 
     @classmethod
-    def export_bilingual_html(
-        cls,
-        markdown_path: str,
-        output_path: str = None,
-        title: str = None
-    ) -> str:
+    def export_bilingual_html(cls, markdown_path: str, output_path: str = None, title: str = None) -> str:
         """
         将双语对照 Markdown 导出为 HTML
 
@@ -388,7 +349,7 @@ class ExportService:
         markdown_path = Path(markdown_path)
 
         if output_path is None:
-            output_path = markdown_path.with_suffix('.html')
+            output_path = markdown_path.with_suffix(".html")
         else:
             output_path = Path(output_path)
 
@@ -396,11 +357,19 @@ class ExportService:
             title = markdown_path.stem
 
         # 读取 Markdown
-        with open(markdown_path, encoding='utf-8') as f:
+        with open(markdown_path, encoding="utf-8") as f:
             content = f.read()
 
         # 解析双语段落
-        paragraphs = cls.parse_bilingual_markdown(content)
+        records_path = markdown_path.parent / (
+            markdown_path.name.replace(".bilingual.md", "").replace(".md", "") + ".json"
+        )
+        records = json.loads(records_path.read_text(encoding="utf-8")) if records_path.exists() else None
+        paragraphs = (
+            [BilingualParagraph(item["original"], item["translation"]) for item in records]
+            if records is not None
+            else cls.parse_bilingual_markdown(content)
+        )
 
         # 生成 HTML 内容
         html_content = []
@@ -416,21 +385,14 @@ class ExportService:
                 embed_images=True,
             )
 
-            row = cls.BILINGUAL_ROW_TEMPLATE.format(
-                index=i,
-                source=source_html,
-                translation=translation_html
-            )
+            row = cls.BILINGUAL_ROW_TEMPLATE.format(index=i, source=source_html, translation=translation_html)
             html_content.append(row)
 
         # 生成完整 HTML
-        html = cls.HTML_TEMPLATE.format(
-            title=title,
-            content='\n'.join(html_content)
-        )
+        html = cls.HTML_TEMPLATE.format(title=html_escape.escape(title), content="\n".join(html_content))
 
         # 写入文件
-        with open(output_path, 'w', encoding='utf-8') as f:
+        with open(output_path, "w", encoding="utf-8") as f:
             f.write(html)
 
         return str(output_path)
@@ -441,14 +403,14 @@ class ExportService:
         从双语 Markdown 中提取单语译文版本。
         保留非双语元数据区块，仅移除每个双语段中的原文引用块与分隔线。
         """
-        sections = re.split(r'(\n---+\n)', content)
+        sections = re.split(r"(\n---+\n)", content)
         rendered_sections: list[str] = []
 
         for section in sections:
-            if not section or re.fullmatch(r'\n---+\n', section):
+            if not section or re.fullmatch(r"\n---+\n", section):
                 continue
 
-            lines = section.split('\n')
+            lines = section.split("\n")
             source_lines: list[str] = []
             translation_lines: list[str] = []
             in_quote = False
@@ -485,7 +447,7 @@ class ExportService:
     def _normalize_mono_markdown(cls, content: str) -> str:
         """清理从双语结果提取出的单语 Markdown。"""
         content = content.replace("（双语对照）", "")
-        content = re.sub(r'^\s*---+\s*$\n?', '', content, flags=re.MULTILINE)
+        content = re.sub(r"^\s*---+\s*$\n?", "", content, flags=re.MULTILINE)
 
         lines = content.splitlines()
         normalized_lines: list[str] = []
@@ -502,7 +464,7 @@ class ExportService:
                 continue
 
             blank_streak = 0
-            if re.fullmatch(r'!\[[^\]]*\]\([^)]+\)', stripped):
+            if re.fullmatch(r"!\[[^\]]*\]\([^)]+\)", stripped):
                 if stripped == last_image_line:
                     continue
                 last_image_line = stripped
@@ -530,10 +492,12 @@ class ExportService:
         target_dir.mkdir(parents=True, exist_ok=True)
 
         content = markdown_path.read_text(encoding="utf-8")
-        image_paths = re.findall(r'!\[[^\]]*\]\(([^)]+)\)', content)
+        image_paths = re.findall(r"!\[[^\]]*\]\(([^)]+)\)", content)
         copied: list[str] = []
 
         for raw_path in image_paths:
+            if raw_path.startswith(("http://", "https://", "data:")):
+                continue
             filename = Path(raw_path).name
             if not filename:
                 continue
@@ -547,8 +511,12 @@ class ExportService:
 
         if copied:
             rewritten = re.sub(
-                r'(!\[[^\]]*\]\()([^)]+)(\))',
-                lambda match: f"{match.group(1)}assets/{asset_dir_name}/{Path(match.group(2)).name}{match.group(3)}",
+                r"(!\[[^\]]*\]\()([^)]+)(\))",
+                lambda match: (
+                    f"{match.group(1)}assets/{asset_dir_name}/{Path(match.group(2)).name}{match.group(3)}"
+                    if Path(match.group(2)).name in copied
+                    else match.group(0)
+                ),
                 content,
             )
             markdown_path.write_text(rewritten, encoding="utf-8")
@@ -573,7 +541,7 @@ class ExportService:
         with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             if assets_dir.exists():
                 for file_path in assets_dir.rglob("*"):
-                    if file_path.is_file():
+                    if file_path.is_file() and file_path.resolve().is_relative_to(assets_dir.resolve()):
                         archive.write(
                             file_path,
                             arcname=str(Path("assets") / task_id / file_path.relative_to(assets_dir)),
@@ -589,11 +557,15 @@ class ExportService:
         markdown_path: Path | None,
         embed_images: bool,
     ) -> str:
-        source = cls._resolve_image_source(
-            Path(raw_path),
-            markdown_path,
-            cls._candidate_asset_roots(markdown_path),
-        ) if markdown_path else None
+        source = (
+            cls._resolve_image_source(
+                Path(raw_path),
+                markdown_path,
+                cls._candidate_asset_roots(markdown_path),
+            )
+            if markdown_path
+            else None
+        )
         src = raw_path
         if embed_images and source and source.exists():
             mime_type = mimetypes.guess_type(source.name)[0] or "application/octet-stream"
@@ -601,7 +573,9 @@ class ExportService:
             src = f"data:{mime_type};base64,{encoded}"
         elif source and source.exists():
             src = source.as_posix()
-        return f'<img src="{src}" alt="{alt or Path(raw_path).stem}">'
+        if not src.startswith(("https://", "http://", "data:image/")) and Path(src).is_absolute() and source is None:
+            src = ""
+        return f'<img src="{html_escape.escape(src, quote=True)}" alt="{html_escape.escape(alt or Path(raw_path).stem, quote=True)}">'
 
     @classmethod
     def _candidate_asset_roots(cls, markdown_path: Path | None) -> list[Path]:
@@ -623,36 +597,29 @@ class ExportService:
         markdown_path: Path | None,
         asset_roots: list[str | Path],
     ) -> Path | None:
+        allowed = [Path(root).resolve() for root in asset_roots]
         filename = image_path.name
-        candidates = []
-        if markdown_path is not None:
-            candidates.append(markdown_path.parent / image_path)
-        for root in asset_roots:
-            root = Path(root)
-            candidates.append(root / image_path)
-            candidates.append(root / filename)
-
+        if image_path.suffix.lower() not in {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"}:
+            return None
+        candidates = [Path(root) / image_path for root in allowed]
+        if markdown_path:
+            candidates.insert(0, markdown_path.parent / image_path)
+        candidates += [root / filename for root in allowed]
         for candidate in candidates:
-            if candidate.exists():
-                return candidate
-
-        for root in asset_roots:
-            root = Path(root)
-            if not root.exists():
-                continue
-            matches = list(root.rglob(filename))
-            if matches:
-                return matches[0]
-
+            resolved = candidate.resolve()
+            if resolved.is_file() and any(resolved.is_relative_to(root) for root in allowed):
+                return resolved
+        if not image_path.is_absolute() and ".." not in image_path.parts:
+            for root in allowed:
+                if root.exists():
+                    for match in root.rglob(filename):
+                        resolved = match.resolve()
+                        if resolved.is_file() and resolved.is_relative_to(root):
+                            return resolved
         return None
 
     @classmethod
-    def export_from_pairs(
-        cls,
-        pairs: list[tuple[str, str]],
-        output_path: str,
-        title: str = "翻译结果"
-    ) -> str:
+    def export_from_pairs(cls, pairs: list[tuple[str, str]], output_path: str, title: str = "翻译结果") -> str:
         """
         从原文-译文对列表导出 HTML
 
@@ -669,19 +636,12 @@ class ExportService:
             source_html = cls.markdown_to_html(source)
             translation_html = cls.markdown_to_html(translation)
 
-            row = cls.BILINGUAL_ROW_TEMPLATE.format(
-                index=i,
-                source=source_html,
-                translation=translation_html
-            )
+            row = cls.BILINGUAL_ROW_TEMPLATE.format(index=i, source=source_html, translation=translation_html)
             html_content.append(row)
 
-        html = cls.HTML_TEMPLATE.format(
-            title=title,
-            content='\n'.join(html_content)
-        )
+        html = cls.HTML_TEMPLATE.format(title=html_escape.escape(title), content="\n".join(html_content))
 
-        with open(output_path, 'w', encoding='utf-8') as f:
+        with open(output_path, "w", encoding="utf-8") as f:
             f.write(html)
 
         return output_path

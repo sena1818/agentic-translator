@@ -3,6 +3,7 @@
 从 scripts/async_translator.py:422-478 提取
 解决异步并发导致的乱序输出问题
 """
+
 import asyncio
 import re
 
@@ -39,13 +40,7 @@ class OutputManager:
         self.written_count = 0
         self.bilingual = bilingual
 
-    async def add_result(
-        self,
-        index: int,
-        content: str,
-        success: bool,
-        original_text: str = ""
-    ):
+    async def add_result(self, index: int, content: str, success: bool, original_text: str = ""):
         """
         添加翻译结果
 
@@ -56,28 +51,14 @@ class OutputManager:
             original_text: 原文(用于失败占位符和双语对照)
         """
         async with self.lock:
-            # 1. 构造写入内容
-            if success:
-                if self.bilingual and original_text:
-                    # 双语对照模式: 原文(引用块) + 译文
-                    final_content = self._format_bilingual(original_text, content)
-                else:
-                    # 普通模式: 仅译文
-                    final_content = content
-            else:
-                # 失败时写入占位符
-                final_content = (
-                    f"\n\n> **[翻译失败 - Chunk {index}]**\n"
-                    f"> *API 请求失败或超时,请根据以下原文手动补全:*\n\n"
-                    f"```text\n{original_text[:500]}...\n```\n\n"
-                )
+            final_content = self.render_result(index, content, success, original_text, self.bilingual)
 
             # 2. 存入缓冲区
             self.buffer[index] = final_content
 
             # 3. 尝试连续写入 (Flush Buffer)
             if aiofiles is None:
-                with open(self.output_path, 'a', encoding='utf-8') as f:
+                with open(self.output_path, "a", encoding="utf-8") as f:
                     while self.next_index in self.buffer:
                         text_to_write = self.buffer[self.next_index]
                         f.write("\n\n")
@@ -87,7 +68,7 @@ class OutputManager:
                         self.next_index += 1
                         self.written_count += 1
             else:
-                async with aiofiles.open(self.output_path, 'a', encoding='utf-8') as f:
+                async with aiofiles.open(self.output_path, "a", encoding="utf-8") as f:
                     while self.next_index in self.buffer:
                         text_to_write = self.buffer[self.next_index]
 
@@ -100,7 +81,8 @@ class OutputManager:
                         self.next_index += 1
                         self.written_count += 1
 
-    def _format_bilingual(self, original: str, translation: str) -> str:
+    @staticmethod
+    def _format_bilingual(original: str, translation: str) -> str:
         """
         格式化双语对照内容
 
@@ -111,18 +93,36 @@ class OutputManager:
         Returns:
             格式化后的双语对照文本
         """
-        translation_image_paths = set(re.findall(r'!\[[^\]]*\]\(([^)]+)\)', translation))
+        translation_image_paths = set(re.findall(r"!\[[^\]]*\]\(([^)]+)\)", translation))
         original_lines = []
-        for line in original.strip().split('\n'):
-            image_match = re.fullmatch(r'!\[[^\]]*\]\(([^)]+)\)', line.strip())
+        for line in original.strip().split("\n"):
+            image_match = re.fullmatch(r"!\[[^\]]*\]\(([^)]+)\)", line.strip())
             if image_match and image_match.group(1) in translation_image_paths:
                 continue
             original_lines.append(line)
 
-        quoted_original = '\n'.join(f'> {line}' for line in original_lines if line or len(original_lines) == 1)
+        quoted_original = "\n".join(f"> {line}" for line in original_lines if line or len(original_lines) == 1)
         if quoted_original:
             return f"{quoted_original}\n\n{translation}\n\n---"
         return f"{translation}\n\n---"
+
+    @classmethod
+    def render_result(cls, index, content, success, original_text="", bilingual=False):
+        if success:
+            return cls._format_bilingual(original_text, content) if bilingual else content
+        return (
+            f"\n\n> **[翻译失败 - Chunk {index}]**\n> 请重试此块或人工补全。\n\n```text\n{original_text[:500]}\n```\n"
+        )
+
+    @classmethod
+    def write_document(cls, path, filename, results, bilingual=False):
+        mode = "（双语对照）" if bilingual else ""
+        parts = [f"# {filename} - 中文翻译{mode}\n\n> 由 AI 自动翻译"]
+        for result in sorted(results, key=lambda item: item.chunk_index):
+            parts.append(
+                cls.render_result(result.chunk_index, result.translation, result.success, result.original, bilingual)
+            )
+        path.write_text("\n\n".join(parts) + "\n", encoding="utf-8")
 
     @property
     def current_index(self) -> int:

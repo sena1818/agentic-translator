@@ -1,6 +1,7 @@
 """
 翻译任务 worker
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -27,9 +28,7 @@ class TaskWorker:
         config = get_config()
         self.service = TranslationService()
         self.poll_interval = poll_interval if poll_interval is not None else config.worker_poll_interval
-        self.stale_after_seconds = (
-            stale_after_seconds if stale_after_seconds is not None else config.worker_stale_after
-        )
+        self.stale_after_seconds = stale_after_seconds if stale_after_seconds is not None else config.worker_stale_after
         self.max_parallel_tasks = (
             max_parallel_tasks if max_parallel_tasks is not None else config.worker_max_parallel_tasks
         )
@@ -45,7 +44,12 @@ class TaskWorker:
         self.logger.info("🎯 Worker 已启动: %s", self.worker_name)
 
         idle_rounds = 0
+        heartbeat_at = 0.0
         while not self._stop_event.is_set():
+            now = asyncio.get_running_loop().time()
+            if now - heartbeat_at >= 5:
+                await self.service.db.worker_heartbeat(self.worker_name)
+                heartbeat_at = now
             if idle_rounds % 30 == 0:
                 reclaimed = await self.service.requeue_stale_tasks(self.stale_after_seconds)
                 if reclaimed:
@@ -67,6 +71,8 @@ class TaskWorker:
         """停止 worker"""
         self._stop_event.set()
         if self._active_tasks:
+            for task in self._active_tasks:
+                task.cancel()
             await asyncio.gather(*self._active_tasks, return_exceptions=True)
 
     async def _wait_or_timeout(self, timeout: float):
@@ -93,12 +99,21 @@ class TaskWorker:
     async def _fill_capacity(self) -> int:
         started = 0
         while not self._stop_event.is_set() and len(self._active_tasks) < self.max_parallel_tasks:
-            task = await self.service.claim_next_pending_task()
+            task = (
+                await self.service.claim_next_pending_task(
+                    worker_id=self.worker_name, lease_seconds=self.stale_after_seconds
+                )
+                if isinstance(self.service, TranslationService)
+                else await self.service.claim_next_pending_task()
+            )
             if not task:
                 break
 
             self.logger.info("📥 Worker 认领任务: %s (%s)", task.task_id, task.filename)
-            self._spawn_task(self.service.start_translation(task.task_id, already_claimed=True))
+            options = {"already_claimed": True}
+            if hasattr(task, "execution_id"):
+                options["execution_id"] = task.execution_id
+            self._spawn_task(self.service.start_translation(task.task_id, **options))
             started += 1
 
         return started
