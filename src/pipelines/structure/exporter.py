@@ -115,6 +115,8 @@ class StructuredExporter:
 
         translated_ast = copy.deepcopy(plan.ir.ast)
         _apply_units(translated_ast["blocks"], assemblies, lambda item: item.translated_blocks)
+        # 块对象与 translated_ast 共享，原地同步目录即可让 HTML、双语导出一并生效
+        sync_toc_entries(translated_ast["blocks"])
         return AssembledDocument(
             plan=plan,
             chunks=assemblies,
@@ -128,7 +130,7 @@ class StructuredExporter:
 
     @staticmethod
     def mono_markdown(document: AssembledDocument) -> str:
-        return pandoc.blocks_to_markdown(document.translated_ast, document.translated_ast["blocks"]) + "\n"
+        return pandoc.document_to_markdown(document.translated_ast) + "\n"
 
     @staticmethod
     def bilingual_markdown(document: AssembledDocument) -> str:
@@ -249,6 +251,51 @@ def _apply_units(blocks: list[dict], assemblies: list[ChunkAssembly], choose) ->
             replacements.extend((unit.path, [block]) for unit, block in zip(units, new_blocks, strict=True))
     for path, new in sorted(replacements, key=lambda pair: pair[0], reverse=True):
         document_ir.set_block_at(blocks, path, new)
+
+
+def sync_toc_entries(blocks: list[dict]) -> int:
+    """目录项（列表项仅含一个指向标题的内部链接）的文字改为该标题的译文，返回同步条数。
+
+    目录与标题分属不同块、分别翻译，措辞可能不一致；正文里的交叉引用（"见第三节"）保留自身措辞。
+    """
+    headers: dict[str, list[dict]] = {}
+
+    def collect(value):
+        if isinstance(value, dict):
+            if value.get("t") == "Header" and value["c"][1][0]:
+                headers[value["c"][1][0]] = [node for node in value["c"][2] if node["t"] != "Note"]
+            for item in value.values():
+                collect(item)
+        elif isinstance(value, list):
+            for item in value:
+                collect(item)
+
+    collect(blocks)
+    synced = 0
+
+    def visit(value):
+        nonlocal synced
+        if isinstance(value, dict):
+            kind = value.get("t")
+            items = value["c"] if kind == "BulletList" else value["c"][1] if kind == "OrderedList" else []
+            for item in items:
+                first = item[0] if item else None
+                if not first or first["t"] not in {"Plain", "Para"}:
+                    continue
+                nodes = [node for node in first["c"] if node["t"] not in {"Space", "SoftBreak"}]
+                if len(nodes) == 1 and nodes[0]["t"] == "Link":
+                    target = nodes[0]["c"][2][0]
+                    if target.startswith("#") and target[1:] in headers:
+                        nodes[0]["c"][1][:] = copy.deepcopy(headers[target[1:]])
+                        synced += 1
+            for item in value.values():
+                visit(item)
+        elif isinstance(value, list):
+            for item in value:
+                visit(item)
+
+    visit(blocks)
+    return synced
 
 
 def _quote_form(block: dict) -> dict:

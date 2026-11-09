@@ -400,3 +400,44 @@ def test_reader_route_serves_sandboxed_html_for_mono_tasks(tmp_path, monkeypatch
     assert "reader" in response.text
     assert response.headers["content-disposition"].startswith("inline")
     assert "sandbox allow-scripts" in response.headers["content-security-policy"]
+
+
+# --------------------------------------------------------------------------- #
+# 真实模型评测暴露的规则误报（Gemini 3.5 Flash，structured_chapter.md）
+# --------------------------------------------------------------------------- #
+
+
+def test_glossary_matching_is_whole_word_and_optionally_case_aware():
+    from src.domain.rules.glossary_selection import term_occurs
+
+    assert not term_occurs("Sun", "every Sunday")
+    assert not term_occurs("Oil", "the toil of reading")
+    assert term_occurs("Plot Hole", "Plot Holes are gaps")
+    assert term_occurs("Backpropagation", "we use backpropagation")  # 默认大小写无关（论文）
+    assert not term_occurs("Earth", "openings in the earth", respect_case=True)  # 理论著作：小写是普通用词
+    assert term_occurs("Earth", "the Earth turns", respect_case=True)
+
+
+def test_numbers_adjacent_to_cjk_are_not_reported_missing():
+    from src.core.validator import TranslationValidator
+
+    report = TranslationValidator().validate("Published in 2008, 47 pages.", "2008年出版，共47页。", {})
+    assert not any(issue.kind == "fidelity" for issue in report.issues)
+
+
+def test_italic_titles_rendered_with_chinese_brackets_are_not_flagged():
+    inlines = _para_inlines('See *Cyclonopedia* and "the blog".')
+    translated = _para_inlines("见《旋风百科全书》与“博客”。")
+    assert inline_codec.compare_skeletons(inlines, translated) == ([], [])
+
+
+def test_table_of_contents_follows_translated_headings():
+    from src.pipelines.structure.exporter import sync_toc_entries
+
+    ast = pandoc.markdown_to_ast(
+        "- [Part One](#one)\n\n# 第一部分：开端 {#one}\n\nSee [the first part](#one) for details.\n"
+    )
+    assert sync_toc_entries(ast["blocks"]) == 1
+    markdown = pandoc.blocks_to_markdown(ast, ast["blocks"])
+    assert "-   [第一部分：开端](#one)" in markdown
+    assert "See [the first part](#one)" in markdown  # 正文交叉引用保留原措辞

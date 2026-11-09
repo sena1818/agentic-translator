@@ -13,8 +13,9 @@ import shutil
 import subprocess
 
 READER = "markdown"
-# 输出 Markdown 时禁用 simple/multiline/grid 表格，让 pandoc 回落到 GFM 风格的管道表格
-WRITER = "markdown-simple_tables-multiline_tables-grid_tables"
+# 输出 Markdown 时：关闭 smart（直接写 “”、——，而不是 "、--- 这类 pandoc 专有转义，GitHub 等渲染器才能正确显示）；
+# 禁用 simple/multiline/grid 表格，让 pandoc 回落到 GFM 风格的管道表格
+WRITER = "markdown-smart-simple_tables-multiline_tables-grid_tables"
 BREAK_MARKER = "<!--at-chunk-break-->"
 _FOOTNOTE_LABEL_RE = re.compile(r"\[\^([^\]\s]+)\]")
 
@@ -61,6 +62,14 @@ def blocks_to_markdown(ast_template: dict, blocks: list[dict]) -> str:
         _document(ast_template, blocks),
     )
     return output.strip()
+
+
+def document_to_markdown(ast: dict) -> str:
+    """整篇文档写成 Markdown，保留 YAML 元数据（标题、作者等）。"""
+    return _run(
+        ["-f", "json", "-t", WRITER, "--standalone", "--wrap=none"],
+        json.dumps(ast, ensure_ascii=False),
+    ).strip()
 
 
 def blocks_groups_to_markdown(ast_template: dict, groups: list[list[dict]]) -> list[str]:

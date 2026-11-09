@@ -1,0 +1,121 @@
+# Gemini（AI Studio 免费层）配置档：python translate.py ... -c config/gemini.yaml
+# 运行前设置 GEMINI_API_KEY 环境变量（云端会话由网络代理注入，变量填占位值即可）
+
+# API 配置
+api:
+  provider: "google"
+  # Gemini 的 OpenAI 兼容端点（AI Studio 密钥，Authorization: Bearer）
+  base_url: "https://generativelanguage.googleapis.com/v1beta/openai/"
+  model: "gemini-3.5-flash"
+  api_key_env: "GEMINI_API_KEY"
+  # 压低思考预算：实测 low 档保留全部标签，单段 ~1.5s；默认档 ~7.6s 且多耗 ~1200 token
+  reasoning_effort: "low"
+
+  # LLM 参数
+  translator:
+    temperature: 0.3  # 翻译创造性
+    max_retries: 5  # 免费层 429/503 较常见，多退避几次
+
+  checker:
+    temperature: 0.1  # 质检确定性
+
+# 并发控制
+concurrency:
+  max_concurrent_requests: 3   # 免费层速率有限
+  batch_size: 5
+  rate_limit_per_minute: 12
+  request_timeout: 120
+
+# 文本分块
+text_splitting:
+  chunk_size: 3600
+  target_chunk_size: 3200
+  min_chunk_size: 1200
+  chunk_overlap: 200
+  context_window: 1400
+  separators: ["\n\n", "\n", ".", "!", "?", " ", ""]
+
+# 路径配置 (相对于项目根目录)
+paths:
+  input: "data/input"
+  output: "data/output"
+  temp: "data/temp"
+  glossaries: "data/glossaries"
+  logs: "logs"
+  artifact_rules: "config/artifact_rules.yaml"
+
+# 日志配置
+logging:
+  level: "INFO"
+  format: "%(asctime)s - [%(levelname)s] - %(message)s"
+
+# Web 服务配置
+server:
+  port: 8000
+  reload: false
+  reload_dirs:
+    - "src"
+    - "frontend"
+    - "run_server.py"
+    - "run_worker.py"
+
+# 结构化翻译（Document IR，见 ADR-0004）
+# 启用后以 pandoc AST 持有文档结构，LLM 只翻译带内联标签的段；
+# 公式、链接地址、图片、脚注、代码由程序保证不丢不错位，并导出段级双语对照与联动 HTML。
+# 需要安装 pandoc；不可用时自动回落到传统 Markdown 分块。
+document_ir:
+  enabled: true
+
+# 翻译质量控制
+quality:
+  max_fix_attempts: 1
+  enable_qa_check: true
+  untranslated_word_span: 12
+  max_glossary_checks: 25
+  # 理论著作中概念靠首字母大写标记：Earth/Solid 等术语不约束文中小写的普通用法。
+  # 论文类文本请设为 false（见 config/research_paper.yaml）
+  glossary_respect_case: true
+  qa_checks:
+    - "terminology"  # 术语一致性
+    - "untranslated"  # 未翻译检测
+    - "format"  # 格式保留
+
+# Worker 队列配置
+worker:
+  inline_enabled: true
+  poll_interval_seconds: 2
+  stale_after_seconds: 900
+  max_parallel_tasks: 1
+  processes: 1
+
+# 可观测性（Langfuse）
+observability:
+  langfuse:
+    enabled: false  # 开关；默认关闭。开启且具备密钥才接入，缺 SDK/密钥自动降级为无操作
+    # 密钥从环境变量读取，不写入本文件：
+    #   LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY / LANGFUSE_HOST（可选，默认云版）
+
+# Prompt 领域定制（可选）：不配置时使用通用专业文本人设。
+# 各字段覆盖默认角色与要求，完整示例见 config/research_paper.yaml。
+# prompt:
+#   translator_role: "你是资深的机器学习论文译者……"
+#   translation_requirements:
+#     - "……"
+#   repair_requirements:
+#     - "……"
+#   analyst_requirements:
+#     - "terminology_hints 最多 {max_term_hints} 条"
+
+# 术语表引导生成（translate.py --suggest-glossary）
+glossary_extraction:
+  max_chars: 16000   # 采样文档前 N 字符供术语专家扫描
+  max_terms: 60      # 最多起草多少候选术语
+
+# 三角色多 agent 协作
+multi_agent:
+  enabled: true
+  engine: "langgraph"  # 编排引擎：langgraph | native（见 ADR-0001）
+  analyst_temperature: 0.1
+  analyst_max_chars: 12000
+  analyst_max_sections: 12
+  analyst_max_term_hints: 12

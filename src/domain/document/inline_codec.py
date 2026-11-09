@@ -286,6 +286,10 @@ def compare_skeletons(source: list[dict], translation: list[dict]) -> tuple[list
     for (label, value), count in (tgt_strict - src_strict).items():
         severe.append(f"多出{label}" + (f" `{value[:60]}`" if value else "") + (f" ×{count}" if count > 1 else ""))
     minor = []
+    # 斜体与引号不计：中文习惯把斜体书名写成《》、把引号写成“”，丢掉这两类标签是正确译法
+    ignored = {"i", "q", "span"}
+    src_fmt = Counter({k: v for k, v in src_fmt.items() if k not in ignored})
+    tgt_fmt = Counter({k: v for k, v in tgt_fmt.items() if k not in ignored})
     if src_fmt != tgt_fmt:
         minor.append("行内格式（加粗/斜体等）数量与原文不同")
     return severe, minor

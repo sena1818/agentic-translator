@@ -67,6 +67,9 @@ quality:
   enable_qa_check: true
   untranslated_word_span: 12
   max_glossary_checks: 25
+  # 理论著作中概念靠首字母大写标记：Earth/Solid 等术语不约束文中小写的普通用法。
+  # 论文类文本请设为 false（见 config/research_paper.yaml）
+  glossary_respect_case: true
   qa_checks:
     - "terminology"  # 术语一致性
     - "untranslated"  # 未翻译检测

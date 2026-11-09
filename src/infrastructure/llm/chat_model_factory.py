@@ -39,35 +39,26 @@ class ChatModelFactory:
 
         return RunnableLambda(invoke).with_config({"run_name": run_name})
 
+    def _model(self, temperature: float):
+        options = {
+            "model": self.config.model_name,
+            "temperature": temperature,
+            "api_key": self.config.api_key,
+            "base_url": self.config.api_base_url,
+            "timeout": float(self.config.get("concurrency.request_timeout", 60)),
+            "max_retries": 0,
+        }
+        # 推理模型（如 Gemini 3.x Flash、OpenAI o 系列）可压低思考预算，翻译场景下明显更快更省
+        reasoning_effort = self.config.get("api.reasoning_effort")
+        if reasoning_effort:
+            options["reasoning_effort"] = reasoning_effort
+        return _ChatOpenAI(**options)
+
     def create_translator(self):
-        model = _ChatOpenAI(
-            model=self.config.model_name,
-            temperature=self.config.translator_temperature,
-            api_key=self.config.api_key,
-            base_url=self.config.api_base_url,
-            timeout=float(self.config.get("concurrency.request_timeout", 60)),
-            max_retries=0,
-        )
-        return self._traced(model, "translator")
+        return self._traced(self._model(self.config.translator_temperature), "translator")
 
     def create_checker(self):
-        model = _ChatOpenAI(
-            model=self.config.model_name,
-            temperature=self.config.checker_temperature,
-            api_key=self.config.api_key,
-            base_url=self.config.api_base_url,
-            timeout=float(self.config.get("concurrency.request_timeout", 60)),
-            max_retries=0,
-        )
-        return self._traced(model, "checker")
+        return self._traced(self._model(self.config.checker_temperature), "checker")
 
     def create_analyst(self):
-        model = _ChatOpenAI(
-            model=self.config.model_name,
-            temperature=self.config.analyst_temperature,
-            api_key=self.config.api_key,
-            base_url=self.config.api_base_url,
-            timeout=float(self.config.get("concurrency.request_timeout", 60)),
-            max_retries=0,
-        )
-        return self._traced(model, "analyst")
+        return self._traced(self._model(self.config.analyst_temperature), "analyst")

@@ -7,6 +7,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from ..domain.rules.glossary_selection import term_occurs
+
 
 @dataclass
 class QualityIssue:
@@ -52,9 +54,11 @@ class TranslationValidator:
         self,
         untranslated_word_span: int = 12,
         max_glossary_checks: int = 25,
+        glossary_respect_case: bool = False,
     ):
         self.untranslated_word_span = untranslated_word_span
         self.max_glossary_checks = max_glossary_checks
+        self.glossary_respect_case = glossary_respect_case
 
     def validate(
         self,
@@ -69,8 +73,10 @@ class TranslationValidator:
         # 数字和公式属于需要保真的内容，代码和 URL 不参与自然语言残留检查。
         prose = re.sub(r"```[\s\S]*?```|`[^`]*`|https?://\S+", "", translation)
         issues.extend(self._check_untranslated_english(prose))
-        numbers = set(re.findall(r"(?<![\w])\d+(?:[.,]\d+)*(?![\w])", original_text))
-        missing = numbers - set(re.findall(r"(?<![\w])\d+(?:[.,]\d+)*(?![\w])", translation))
+        # 数字边界只看 ASCII 字母数字：中文紧贴数字（"2008年"、"47页"）是正常写法
+        number_re = r"(?<![0-9A-Za-z_])\d+(?:[.,]\d+)*(?![0-9A-Za-z_])"
+        numbers = set(re.findall(number_re, original_text))
+        missing = numbers - set(re.findall(number_re, translation))
         if missing:
             issues.append(QualityIssue("fidelity", "medium", "缺少原文数字: " + ", ".join(sorted(missing))))
         formulas = re.findall(r"\$\$[\s\S]*?\$\$|(?<!\$)\$[^$\n]+\$", original_text)
@@ -125,7 +131,7 @@ class TranslationValidator:
             if checked >= self.max_glossary_checks:
                 break
 
-            if en_term.lower() not in original_text.lower():
+            if not term_occurs(en_term, original_text, self.glossary_respect_case):
                 continue
 
             checked += 1

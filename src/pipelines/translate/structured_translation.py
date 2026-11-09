@@ -18,6 +18,7 @@ from ...core.validator import QualityIssue, QualityReport, TranslationValidator
 from ...domain.document import document_ir, inline_codec
 from ...domain.models.translation_models import DocumentProfile
 from ...domain.rules.chunk_planning import TextChunk
+from ...domain.rules.glossary_selection import respect_case as _respect_case
 from ...domain.rules.glossary_selection import select_relevant_glossary
 from ...infrastructure.document import pandoc
 from .langchain_compat import StrOutputParser
@@ -173,7 +174,9 @@ class StructuredChunkTranslator:
         return self.segment_validator.check(seg, candidates[seg.candidate_index], tagged)
 
     def _glossary_text(self, chunk: TextChunk) -> str:
-        relevant = select_relevant_glossary(self.glossary, chunk.text, chunk.context_text)
+        relevant = select_relevant_glossary(
+            self.glossary, chunk.text, chunk.context_text, respect_case=_respect_case(self.config)
+        )
         return "\n".join(f"- {en}: {zh}" for en, zh in relevant.items()) or "无"
 
     async def _repair(self, failing, outcomes, common) -> dict[int, str]:

@@ -9,6 +9,7 @@ import logging
 from ...core.chunk_planner import TextChunk
 from ...core.validator import QualityReport, TranslationValidator
 from ...domain.models.translation_models import DocumentProfile
+from ...domain.rules.glossary_selection import respect_case as _respect_case
 from ...domain.rules.glossary_selection import select_relevant_glossary
 from .langchain_compat import StrOutputParser
 from .prompt_builder import TranslationPromptBuilder
@@ -91,7 +92,9 @@ class TranslationQualityPipeline:
         prompt = self.prompt_builder.build_repair_prompt()
         chain = prompt | self.llm_checker | StrOutputParser()
 
-        relevant_glossary = select_relevant_glossary(self.glossary, chunk.text, chunk.context_text)
+        relevant_glossary = select_relevant_glossary(
+            self.glossary, chunk.text, chunk.context_text, respect_case=_respect_case(self.config)
+        )
 
         return await chain.ainvoke(
             {

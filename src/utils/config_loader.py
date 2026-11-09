@@ -111,6 +111,9 @@ class Config:
     @property
     def api_key(self) -> str:
         """获取 API Key (优先从环境变量)"""
+        env_name = self.get("api.api_key_env")
+        if env_name:
+            return os.getenv(env_name)
         return os.getenv("SILICONFLOW_API_KEY") or os.getenv("OPENAI_API_KEY")
 
     @property
@@ -187,6 +190,11 @@ class Config:
     def untranslated_word_span(self) -> int:
         """未翻译英文阈值"""
         return self.get("quality.untranslated_word_span", 12)
+
+    @property
+    def glossary_respect_case(self) -> bool:
+        """术语匹配是否尊重首字母大写（理论著作中大写标记概念）"""
+        return bool(self.get("quality.glossary_respect_case", False))
 
     @property
     def max_glossary_checks(self) -> int:

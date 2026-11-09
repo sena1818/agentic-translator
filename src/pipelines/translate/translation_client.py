@@ -14,6 +14,7 @@ import time
 
 from ...core.chunk_planner import TextChunk
 from ...domain.models.translation_models import DocumentProfile
+from ...domain.rules.glossary_selection import respect_case as _respect_case
 from ...domain.rules.glossary_selection import select_relevant_glossary
 from .langchain_compat import StrOutputParser
 from .prompt_builder import TranslationPromptBuilder
@@ -47,7 +48,9 @@ class TranslationClient:
         chain = prompt | self.llm_translator | StrOutputParser()
         max_retries = self.config.get("api.translator.max_retries", 3)
 
-        relevant_glossary = select_relevant_glossary(self.glossary, chunk.text, chunk.context_text)
+        relevant_glossary = select_relevant_glossary(
+            self.glossary, chunk.text, chunk.context_text, respect_case=_respect_case(self.config)
+        )
 
         for retry in range(max_retries + 1):
             try:

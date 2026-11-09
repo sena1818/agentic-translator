@@ -14,6 +14,7 @@ from pathlib import Path
 
 from ..domain.models.translation_models import DocumentProfile, TranslationResult
 from ..domain.rules.chunk_planning import ChunkPlanner, TextChunk
+from ..domain.rules.glossary_selection import respect_case as _respect_case
 from ..domain.rules.glossary_selection import select_relevant_glossary
 from ..infrastructure.cache.translation_cache import TranslationCache
 from ..infrastructure.document.pandoc import pandoc_available
@@ -74,6 +75,7 @@ class TranslationEngine:
         self.validator = TranslationValidator(
             untranslated_word_span=self.config.untranslated_word_span,
             max_glossary_checks=self.config.max_glossary_checks,
+            glossary_respect_case=_respect_case(self.config),
         )
         self.cache = cache or TranslationCache(self.config.root_dir / "data" / "translation_cache.db")
         self.document_profile = DocumentProfile.empty()
@@ -245,7 +247,9 @@ class TranslationEngine:
         术语表只纳入本块实际注入的子集（与 translation_client 口径一致），
         这样向术语表新增无关术语时不会使全书缓存失效。
         """
-        relevant_glossary = select_relevant_glossary(self.glossary, chunk.text, chunk.context_text)
+        relevant_glossary = select_relevant_glossary(
+            self.glossary, chunk.text, chunk.context_text, respect_case=_respect_case(self.config)
+        )
         glossary_payload = "\n".join(f"{en}:{zh}" for en, zh in sorted(relevant_glossary.items()))
         payload = "|".join(
             [

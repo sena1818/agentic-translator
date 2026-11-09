@@ -61,6 +61,7 @@ quality:
   enable_qa_check: true
   untranslated_word_span: 10
   max_glossary_checks: 40
+  glossary_respect_case: false  # 论文中术语常以小写出现（backpropagation）
   qa_checks:
     - "terminology"
     - "untranslated"
