@@ -578,6 +578,22 @@ class ExportService:
         return f'<img src="{html_escape.escape(src, quote=True)}" alt="{html_escape.escape(alt or Path(raw_path).stem, quote=True)}">'
 
     @classmethod
+    def image_embedder(cls, asset_roots: list[str | Path]):
+        """返回把图片路径解析并内联为 data URI 的函数（找不到时原样返回），供单文件 HTML 使用。"""
+        roots = [Path(root) for root in asset_roots if Path(root).exists()]
+
+        def embed(src: str) -> str:
+            if src.startswith(("http://", "https://", "data:")) or not roots:
+                return src
+            source = cls._resolve_image_source(Path(src), None, roots)
+            if source is None:
+                return src
+            mime_type = mimetypes.guess_type(source.name)[0] or "application/octet-stream"
+            return f"data:{mime_type};base64,{base64.b64encode(source.read_bytes()).decode('ascii')}"
+
+        return embed
+
+    @classmethod
     def _candidate_asset_roots(cls, markdown_path: Path | None) -> list[Path]:
         if markdown_path is None:
             return []

@@ -16,6 +16,7 @@ from ..domain.models.translation_models import DocumentProfile, TranslationResul
 from ..domain.rules.chunk_planning import ChunkPlanner, TextChunk
 from ..domain.rules.glossary_selection import select_relevant_glossary
 from ..infrastructure.cache.translation_cache import TranslationCache
+from ..infrastructure.document.pandoc import pandoc_available
 from ..infrastructure.llm.chat_model_factory import ChatModelFactory
 from ..infrastructure.llm.rate_limiter import RateLimiter
 from ..pipelines.translate.batch_orchestrator import TranslationBatchOrchestrator
@@ -23,6 +24,7 @@ from ..pipelines.translate.chunk_processing import build_cached_result, cached_p
 from ..pipelines.translate.document_analyzer import DocumentAnalyzer
 from ..pipelines.translate.prompt_builder import TranslationPromptBuilder
 from ..pipelines.translate.quality_pipeline import TranslationQualityPipeline
+from ..pipelines.translate.structured_translation import StructuredChunkTranslator
 from ..pipelines.translate.translation_client import TranslationClient
 from ..utils.config_loader import get_config
 from .output_manager import OutputManager
@@ -101,6 +103,20 @@ class TranslationEngine:
             clean_output=self.clean_output,
             glossary=self.glossary,
         )
+        self.structured_translator = StructuredChunkTranslator(
+            llm_translator=self.llm_translator,
+            llm_checker=self.llm_checker,
+            config=self.config,
+            prompt_builder=self.prompt_builder,
+            rate_limiter=self.rate_limiter,
+            clean_output=self.clean_output,
+            glossary=self.glossary,
+            validator=self.validator,
+        )
+        # 结构化模式（Document IR）：结构由程序持有，LLM 只翻译带内联标签的段。
+        # 需要 pandoc；不可用或解析失败时自动回落到传统 Markdown 分块。
+        self.structured_enabled = bool(self.config.get("document_ir.enabled", False)) and pandoc_available()
+        self.document_plan = None
         self.batch_orchestrator = TranslationBatchOrchestrator(
             cache=self.cache,
             build_cache_key=self._build_cache_key,
@@ -108,7 +124,16 @@ class TranslationEngine:
         self.engine_name = (engine or self.config.engine or "native").lower()
 
     def plan_chunks(self, text: str) -> list[TextChunk]:
-        """结构化切块"""
+        """结构化切块；启用 Document IR 时按 AST 单元切块。"""
+        if self.structured_enabled:
+            from ..pipelines.structure.planner import StructuredDocumentPlanner
+
+            try:
+                self.document_plan = StructuredDocumentPlanner.from_config(self.config).plan(text)
+                return self.document_plan.chunks
+            except Exception:
+                logger.warning("Document IR 规划失败，回落到传统 Markdown 分块", exc_info=True)
+                self.document_plan = None
         return self.chunk_planner.plan(text)
 
     def split_text(self, text: str) -> list[str]:
@@ -224,7 +249,7 @@ class TranslationEngine:
         glossary_payload = "\n".join(f"{en}:{zh}" for en, zh in sorted(relevant_glossary.items()))
         payload = "|".join(
             [
-                self.prompt_version,
+                self.prompt_version + ("-ir1" if getattr(chunk, "structured", None) is not None else ""),
                 self.config.prompt_fingerprint,
                 self.config.model_name or "",
                 getattr(self.config, "api_base_url", ""),
@@ -249,14 +274,19 @@ class TranslationEngine:
             翻译结果
         """
         try:
-            translation, retry, duration = await self.translation_client.translate(
-                chunk=chunk,
-                document_profile=self.document_profile,
-            )
-            translation, quality_report, repaired = await self._run_quality_pipeline(
-                chunk=chunk,
-                translation=translation,
-            )
+            if getattr(chunk, "structured", None) is not None:
+                translation, quality_report, repaired, retry, duration = await self.structured_translator.translate(
+                    chunk, self.document_profile
+                )
+            else:
+                translation, retry, duration = await self.translation_client.translate(
+                    chunk=chunk,
+                    document_profile=self.document_profile,
+                )
+                translation, quality_report, repaired = await self._run_quality_pipeline(
+                    chunk=chunk,
+                    translation=translation,
+                )
 
             if not translation.strip():
                 raise ValueError("模型返回空译文")

@@ -29,6 +29,8 @@ class TextChunk:
     section_path: list[str]
     section_title: str
     context_text: str
+    # 结构化模式（Document IR）下的段载荷；为 None 时走传统 Markdown 文本翻译
+    structured: object | None = None
 
 
 class ChunkPlanner:

@@ -259,6 +259,10 @@ Document
 
 ## 8. 分阶段路线图
 
+> **进展（2026-11-09）**：P0 与 P1 已在分支 `claude/gallant-thompson-8xvke6` 实现，见
+> [ADR-0004](../adr/0004-document-ir-structured-translation.md)。脚注的基础处理（行内标签 + 独立成段
+> + 阅读器浮层）随 IR 一并落地；P2 剩余 EPUB 尾注规范化与译注建议队列。
+
 | 阶段 | 内容 | 产出 / 验收 |
 | --- | --- | --- |
 | **P0 地基** | Document IR（pandoc AST）+ 段切分 + 内联标签编解码 + 段级结构校验；chunk 退化为调度批次；结果表下沉到段 | 结构保真基准上公式/链接/图片完整率 ≈100%；ADR-0004 |

@@ -94,6 +94,7 @@ async def download_result(
     task_id: str,
     format: str = Query("md", description="导出格式: md、html 或 zip"),
     variant: str = Query("mono", description="结果类型: mono 或 bilingual"),
+    inline: bool = Query(False, description="HTML 在浏览器内打开（对照阅读器）而非下载"),
 ):
     """
     下载翻译结果
@@ -115,6 +116,10 @@ async def download_result(
     result_dir = TaskFiles().artifacts(task)
     if task and task.status not in {TaskStatus.COMPLETED, TaskStatus.PARTIAL_SUCCESS}:
         raise HTTPException(status_code=400, detail="任务尚未完成，无法下载结果")
+    # Document IR 导出的对照阅读器总是同时包含原文与译文，不依赖双语开关
+    reader_path = result_dir / f"{task_id}.html"
+    if format == "html" and (result_dir / f"{task_id}.structure.json").exists() and reader_path.exists():
+        return _reader_response(reader_path, _download_basename(task.filename), inline)
     if format == "html" and not task.bilingual:
         raise HTTPException(400, "仅双语任务支持 HTML 双栏导出")
     if task and variant == "bilingual" and not task.bilingual:
@@ -169,6 +174,24 @@ async def download_result(
         path=result_path,
         filename=f"{base_name}{'.bilingual' if variant == 'bilingual' else '.cn'}.md",
         media_type="text/markdown",
+    )
+
+
+def _reader_response(path: Path, base_name: str, inline: bool) -> FileResponse:
+    """对照阅读器内含脚本：以沙箱 CSP 提供，脚本运行在不透明源中，无法访问本站 Cookie 与存储。"""
+    headers = {
+        "Content-Security-Policy": (
+            "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox; default-src 'none'; "
+            "img-src data: https: http:; style-src 'unsafe-inline'; script-src 'unsafe-inline'"
+        ),
+        "X-Content-Type-Options": "nosniff",
+    }
+    return FileResponse(
+        path=path,
+        filename=f"{base_name}.reader.html",
+        media_type="text/html",
+        headers=headers,
+        content_disposition_type="inline" if inline else "attachment",
     )
 
 

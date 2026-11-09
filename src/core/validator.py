@@ -15,6 +15,7 @@ class QualityIssue:
     kind: str
     severity: str
     message: str
+    segment: int | None = None  # 结构化模式下的全书段编号，供双栏对照定位
 
 
 @dataclass
@@ -37,6 +38,7 @@ class QualityReport:
                     "kind": issue.kind,
                     "severity": issue.severity,
                     "message": issue.message,
+                    **({"segment": issue.segment} if issue.segment is not None else {}),
                 }
                 for issue in self.issues
             ],
@@ -84,7 +86,9 @@ class TranslationValidator:
 
     def should_repair(self, report: QualityReport) -> bool:
         """是否值得触发修复"""
-        repairable_kinds = {"untranslated", "terminology", "markdown", "empty", "fidelity", "truncated"}
+        repairable_kinds = {
+            "untranslated", "terminology", "markdown", "empty", "fidelity", "truncated", "structure", "missing",
+        }
         return any(issue.kind in repairable_kinds for issue in report.issues)
 
     def is_better(self, candidate: QualityReport, baseline: QualityReport) -> bool:

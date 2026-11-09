@@ -127,6 +127,10 @@ export const downloadResult = (
   return `${API_BASE_URL}/api/files/results/${taskId}?format=${format}&variant=${variant}`;
 };
 
+/** 结构化导出的双栏对照阅读器：在浏览器内打开（段级双向跳转、目录、脚注浮层）。 */
+export const readerUrl = (taskId: string): string =>
+  `${API_BASE_URL}/api/files/results/${taskId}?format=html&inline=true`;
+
 /**
  * 获取双语对照预览（Web 界面内双栏渲染，无需下载）
  */

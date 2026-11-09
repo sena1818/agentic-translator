@@ -24,6 +24,8 @@ Every claim about whether this architecture helps is backed by a reproducible [e
 
 ## Features
 
+- 🧱 **Structure-preserving translation (Document IR)** — the document is held as a pandoc AST; the LLM only sees text with inline tags (`<b1>…</b1>`, `<m2/>`), so formulas, link URLs, images, footnotes, code, heading levels and anchors cannot be dropped or rewritten. Every segment is checked deterministically against the source skeleton; only failing segments go to the Reviewer, and anything still broken falls back to the source text instead of shipping a lossy translation ([ADR-0004](docs/adr/0004-document-ir-structured-translation.md))
+- 🔗 **Linked bilingual reader** — a single offline HTML file: click any paragraph to jump to its counterpart (both directions), scroll-follow by segment anchors, translated table of contents, footnote popovers, MathML formulas, and `n`/`p` navigation through segments that need review
 - 🕸️ **Document-level LangGraph engine** — analyst → Send-API fan-out → per-chunk translate/QA/repair → aggregate, in one StateGraph ([ADR-0001](docs/adr/0001-langgraph-document-level-graph.md)); a `native` asyncio engine is kept behind a config switch for A/B comparison
 - 🚀 **Async concurrency** — account-wide request concurrency and rolling RPM limits shared across workers and exponential-backoff retry
 - 🧩 **Chapter-aware chunking** — chunks planned along Markdown headings with stable structured chunk IDs
@@ -31,7 +33,7 @@ Every claim about whether this architecture helps is backed by a reproducible [e
 - 🛡️ **Selective repair** — QA flags high-risk chunks; only those get a one-shot Reviewer retranslation
 - 💾 **Chunk-level SQLite cache** — resumable by design; keys include model, glossary, prompt version, and document-profile fingerprint
 - ⚠️ **Failure isolation** — a failed chunk becomes a placeholder, never a stalled document
-- 🌗 **Bilingual export** — alternating source/translation Markdown and two-column HTML
+- 🌗 **Bilingual export** — paragraph-aligned source/translation Markdown plus the linked reader above
 - 🌐 **Web UI** — React + FastAPI, with task search, cancellation, recovery, per-chunk retranslation, and manual review
 - 🔌 **MCP server** — stdio transport exposing translation, task management, and glossary tools to Claude Desktop and other MCP clients
 - 🔭 **Observability** — opt-in Langfuse tracing of the full agent call chain and per-chunk token usage, degrading to no-op when unconfigured

@@ -95,3 +95,47 @@ it("取消后刷新状态并提供恢复入口", async () => {
   ).toBeInTheDocument();
   expect(api.cancelTranslation).toHaveBeenCalledWith("demo");
 });
+it("结构化导出的任务提供对照阅读器入口，并替代旧双栏 HTML", async () => {
+  vi.mocked(api.getTaskStatus).mockResolvedValue({
+    ...task,
+    quality_summary: {
+      total: 1,
+      failed: 0,
+      needs_review: 0,
+      repaired: 0,
+      structured: 1,
+      segments: 12,
+      dead_links: 0,
+    },
+  });
+  vi.mocked(api.getChunks).mockResolvedValue({
+    total: 0,
+    revision: "v",
+    chunks: [],
+  });
+  render(
+    <MemoryRouter initialEntries={["/tasks/demo"]}>
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <App>
+          <Routes>
+            <Route path="/tasks/:taskId" element={<TaskDetail />} />
+          </Routes>
+        </App>
+      </QueryClientProvider>
+    </MemoryRouter>,
+  );
+  const reader = await screen.findByRole("link", { name: "对照阅读器" });
+  expect(reader).toHaveAttribute(
+    "href",
+    expect.stringContaining("format=html&inline=true"),
+  );
+  expect(reader).toHaveAttribute("target", "_blank");
+  expect(
+    screen.queryByRole("link", { name: "双栏 HTML" }),
+  ).not.toBeInTheDocument();
+  expect(screen.getByText(/12 段对齐/)).toBeInTheDocument();
+});

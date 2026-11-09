@@ -54,6 +54,18 @@ DEFAULT_GLOSSARY_EXTRACTION_REQUIREMENTS = [
 ]
 
 
+# 结构化（Document IR）模式下的标签协议：结构由程序持有，LLM 只需搬运标签。
+STRUCTURED_TAG_RULES = [
+    "输入由若干 <seg id=\"N\">…</seg> 组成；逐段翻译，按原顺序输出同样 id 的 seg，不合并、不拆分、不遗漏",
+    "自闭合标签（如 <m1/> 公式、<fn2/> 脚注、<img3/> 图片、<code4/> 代码、<br5/> 换行、<anchor6/> 锚点）"
+    "代表必须原样保留的内容：每个标签在译文中恰好出现一次，放在语义对应的位置，不得改写、删除或复制",
+    "成对标签（如 <b1>…</b1> 加粗、<i2>…</i2> 斜体、<a3>…</a3> 链接、<q4>…</q4> 引号）包裹带格式的文字："
+    "翻译标签内的文字并保留标签，可随中文语序移动位置",
+    "&lt; &gt; &amp; 是转义字符，原样保留",
+    "只输出 seg 序列，不要任何前言、解释或代码块包裹",
+]
+
+
 def _numbered(items: list[str]) -> str:
     return "\n".join(f"{index}. {item}" for index, item in enumerate(items, 1))
 
@@ -115,6 +127,61 @@ class TranslationPromptBuilder:
 {_numbered(self.translation_requirements)}
 
 开始翻译:
+"""
+        return ChatPromptTemplate.from_template(template)
+
+    def build_structured_translation_prompt(self) -> ChatPromptTemplate:
+        """结构化模式：按段翻译带内联标签的文本。"""
+        template = f"""{self.translator_role}
+
+【文档分析员备忘】:
+{{document_profile}}
+
+【核心术语表】(必须严格遵守):
+{{glossary}}
+
+【当前章节】:
+{{section_title}}
+
+【上文语境】(仅供参考，不要翻译):
+{{context}}
+
+【翻译要求】:
+{_numbered(self.translation_requirements)}
+
+【标签规则】(最高优先级):
+{_numbered(STRUCTURED_TAG_RULES)}
+
+【待翻译段落】:
+{{segments}}
+"""
+        return ChatPromptTemplate.from_template(template)
+
+    def build_structured_repair_prompt(self) -> ChatPromptTemplate:
+        """结构化模式：只修复被质检点名的段。"""
+        template = f"""{self.repair_role}
+
+下面每个【段 N】给出了原文、当前译文和质检发现的问题。请只针对问题修正译文，
+对每个段输出一行 <seg id="N">修正后的完整译文</seg>，不要回显原文或问题。
+
+【文档分析员备忘】:
+{{document_profile}}
+
+【术语表】(必须严格遵守):
+{{glossary}}
+
+【章节】:
+{{section_title}}
+
+【待修复段落】:
+{{segments}}
+
+---
+要求：
+{_numbered(self.repair_requirements)}
+
+【标签规则】(最高优先级):
+{_numbered(STRUCTURED_TAG_RULES)}
 """
         return ChatPromptTemplate.from_template(template)
 

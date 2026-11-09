@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import json
 import logging
 import shutil
 import uuid
@@ -24,6 +25,8 @@ from ...utils.config_loader import get_config
 from .run_translation_pipeline import RunTranslationPipeline
 
 logger = logging.getLogger(__name__)
+
+SOURCE_NAME = "source.md"
 
 
 class TranslationService:
@@ -178,10 +181,12 @@ class TranslationService:
             output = await use_case.execute(text, stream_path, task.bilingual, progress, chunks)
             results = output.results
             await self._stage(task, "exporting")
+            # 源文随产物保存：结构化导出与人工审校后的重渲染都从它重新规划
+            await asyncio.to_thread((directory / SOURCE_NAME).write_text, text, encoding="utf-8")
             await asyncio.to_thread(self._render, task, directory, results, [Path(markdown).parent, temp_dir])
             failures = [r for r in results if not r.success]
             warnings = [r for r in results if r.success and r.quality_report.get("passed") is False]
-            task.quality_summary = self._summary(results)
+            task.quality_summary = self._summary(results, directory, task_id)
             task.status = (
                 TaskStatus.FAILED
                 if len(failures) == len(results) and failures
@@ -209,16 +214,27 @@ class TranslationService:
             await self.tasks.update(task)
 
     @staticmethod
-    def _summary(results):
-        return {
+    def _summary(results, directory=None, task_id=None):
+        summary = {
             "total": len(results),
             "failed": sum(not r.success for r in results),
             "needs_review": sum(r.success and r.quality_report.get("passed") is False for r in results),
             "repaired": sum(r.repaired for r in results),
             "cached": sum(r.cached for r in results),
         }
+        structure = Path(directory) / f"{task_id}.structure.json" if directory and task_id else None
+        if structure is not None and structure.exists():
+            # 结构化导出可用：前端据此提供对照阅读器入口
+            stats = json.loads(structure.read_text(encoding="utf-8"))
+            summary["structured"] = 1
+            summary["segments"] = stats.get("segments", 0)
+            summary["segments_with_issues"] = stats.get("segments_with_issues", 0)
+            summary["dead_links"] = len(stats.get("dead_links", []))
+        return summary
 
     def _render(self, task, directory, results, asset_sources):
+        if self._render_structured(task, directory, results, asset_sources):
+            return
         formatter = self.postprocess_pipeline.formatter
         for result in results:
             if result.success:
@@ -232,6 +248,10 @@ class TranslationService:
             OutputManager.write_document(paths[1], task.filename, results, True)
         self.postprocess_pipeline.sync_assets(paths, asset_sources, task.task_id)
         # 结构化记录中的图片路径也保持在已发布的任务资源目录。
+        self._sync_record_assets(task, directory, results, asset_sources)
+        self.files.save_records(directory, task.task_id, results)
+
+    def _sync_record_assets(self, task, directory, results, asset_sources):
         from ...pipelines.postprocess.export_service import ExportService
 
         for result in results:
@@ -242,7 +262,47 @@ class TranslationService:
             )
             result.translation = temporary.read_text(encoding="utf-8")
             temporary.unlink()
+
+    def _render_structured(self, task, directory, results, asset_sources) -> bool:
+        """Document IR 导出：单语/段级双语 Markdown + 双栏联动 HTML。不适用时返回 False 走旧导出。"""
+        from dataclasses import asdict
+
+        from ...infrastructure.document.pandoc import pandoc_available
+        from ...pipelines.postprocess.export_service import ExportService
+        from ...pipelines.structure.exporter import StructuredExporter
+
+        config = self._task_config(task)
+        source_path = directory / SOURCE_NAME
+        if not source_path.exists() and task.artifact_dir:
+            previous = self.files.artifacts(task) / SOURCE_NAME
+            if previous.exists():
+                shutil.copy2(previous, source_path)
+        if not (config.get("document_ir.enabled", False) and pandoc_available() and source_path.exists()):
+            return False
+        try:
+            stats = StructuredExporter.from_config(config).export_all(
+                source_path.read_text(encoding="utf-8"),
+                [asdict(result) for result in results],
+                directory,
+                task.task_id,
+                title=Path(task.filename).stem,
+                bilingual=task.bilingual,
+                image_resolver=ExportService.image_embedder(
+                    [*asset_sources, directory / "assets" / task.task_id]
+                ),
+            )
+        except Exception:
+            logger.warning("结构化导出失败，回落到旧导出: %s", task.task_id, exc_info=True)
+            return False
+        if stats is None:
+            return False
+        paths = [directory / f"{task.task_id}.md"]
+        if task.bilingual:
+            paths.append(directory / f"{task.task_id}.bilingual.md")
+        self.postprocess_pipeline.sync_assets(paths, asset_sources, task.task_id)
+        self._sync_record_assets(task, directory, results, asset_sources)
         self.files.save_records(directory, task.task_id, results)
+        return True
 
     def _find_reusable_markdown(self, file_path, temp_dir):
         expected = temp_dir / f"{file_path.stem}.md"
@@ -312,7 +372,8 @@ class TranslationService:
         new_dir = self.files.root / "results" / "runs" / task_id / f"review-{uuid.uuid4().hex}"
         new_dir.mkdir(parents=True)
         await asyncio.to_thread(self._render, task, new_dir, results, [self.files.artifacts(task) / "assets" / task_id])
-        if not await self.db.replace_artifacts(task_id, task.artifact_dir, str(new_dir), self._summary(results)):
+        summary = self._summary(results, new_dir, task_id)
+        if not await self.db.replace_artifacts(task_id, task.artifact_dir, str(new_dir), summary):
             raise ValueError("结果已更新，请刷新后再编辑")
         return await self.get_chunks(task_id)
 

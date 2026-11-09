@@ -54,6 +54,13 @@ server:
     - "run_server.py"
     - "run_worker.py"
 
+# 结构化翻译（Document IR，见 ADR-0004）
+# 启用后以 pandoc AST 持有文档结构，LLM 只翻译带内联标签的段；
+# 公式、链接地址、图片、脚注、代码由程序保证不丢不错位，并导出段级双语对照与联动 HTML。
+# 需要安装 pandoc；不可用时自动回落到传统 Markdown 分块。
+document_ir:
+  enabled: true
+
 # 翻译质量控制
 quality:
   max_fix_attempts: 1

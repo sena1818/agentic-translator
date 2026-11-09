@@ -274,17 +274,6 @@ class TranslationPipeline:
 
         from src.core.output_manager import OutputManager
 
-        if not skip_formatting:
-            for result in results:
-                if result.success:
-                    result.translation = self.postprocess_pipeline.formatter.format(
-                        result.translation, source_type=source_type
-                    )
-        OutputManager.write_document(output_file, input_file.stem, results, bilingual)
-        output_file.with_suffix(".json").write_text(
-            json.dumps([asdict(result) for result in results], ensure_ascii=False, indent=2), encoding="utf-8"
-        )
-
         asset_sources = []
         if not skip_conversion and input_file.suffix.lower() in [".pdf", ".epub", ".mobi"]:
             asset_sources = [
@@ -292,8 +281,44 @@ class TranslationPipeline:
                 temp_dir / "images",
                 temp_dir / "images" / "images",
             ]
+
+        structured_stats = None
+        if getattr(pipeline_output.engine, "document_plan", None) is not None:
+            # Document IR：结构由 AST 回填，输出单语/段级双语 Markdown 与双栏联动 HTML 阅读器
+            from src.pipelines.postprocess.export_service import ExportService
+            from src.pipelines.structure.exporter import StructuredExporter
+
+            structured_stats = StructuredExporter.from_config(self.config).export_all(
+                text,
+                [asdict(result) for result in results],
+                output_file.parent,
+                output_file.stem,
+                title=input_file.stem,
+                bilingual=bilingual,
+                image_resolver=ExportService.image_embedder([*asset_sources, markdown_file.parent]),
+            )
+        if structured_stats is None:
+            if not skip_formatting:
+                for result in results:
+                    if result.success:
+                        result.translation = self.postprocess_pipeline.formatter.format(
+                            result.translation, source_type=source_type
+                        )
+            OutputManager.write_document(output_file, input_file.stem, results, bilingual)
+        else:
+            logger.info(
+                "🧱 结构化导出: %s 段, 内部链接 %s 个, 失效 %s 个; 对照阅读器: %s",
+                structured_stats["segments"],
+                structured_stats["internal_links"],
+                len(structured_stats["dead_links"]),
+                output_file.with_suffix(".html"),
+            )
+        output_file.with_suffix(".json").write_text(
+            json.dumps([asdict(result) for result in results], ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+
         copied_assets = self.postprocess_pipeline.sync_assets(
-            markdown_paths=[output_file],
+            markdown_paths=[output_file, *([output_file.with_suffix(".bilingual.md")] if structured_stats and bilingual else [])],
             asset_sources=asset_sources,
             task_id=output_file.stem,
         )

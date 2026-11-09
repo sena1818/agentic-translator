@@ -115,11 +115,17 @@ class EpubArtifactCleaner:
         )
 
     def _remove_anchor_lines(self, text: str) -> str:
+        # 被内部链接（目录、交叉引用、脚注回链）指向的锚点是跳转目标，必须保留
+        referenced = set(re.findall(r"\]\(#([^)\s]+)\)", text))
+
+        def keep_referenced(match: re.Match[str]) -> str:
+            ids = re.findall(r"\{#([^}\s]+)", match.group(0))
+            return match.group(0) if any(anchor in referenced for anchor in ids) else ""
+
         patterns = self.rules.get("strip_line_patterns") or []
         for pattern in patterns:
-            text = re.sub(pattern, "", text)
-        text = re.sub(r"\[\]\{#[^}]+\}", "", text)
-        text = re.sub(r"(?m)^(?:>\s*)?\[\]\{#[^}]+\}\s*$", "", text)
+            text = re.sub(pattern, keep_referenced, text)
+        text = re.sub(r"\[\]\{#[^}]+\}", keep_referenced, text)
         return text
 
     def _normalize_escaped_list_markers(self, text: str) -> str:

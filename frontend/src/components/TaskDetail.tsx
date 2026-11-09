@@ -11,6 +11,7 @@ import {
   retryTranslation,
   editChunk,
   downloadResult,
+  readerUrl,
   errorText,
   assetUrl,
   type ChunkResult,
@@ -208,6 +209,7 @@ export default function TaskDetail() {
   const t = task.data;
   const active = running(t.status);
   const downloadable = !!t.result_url && !active;
+  const structured = !!t.quality_summary?.structured;
   const stages = [
     "queued",
     "converting",
@@ -291,10 +293,27 @@ export default function TaskDetail() {
           {t.quality_summary.total} 块 · {t.quality_summary.failed} 个失败 ·{" "}
           {t.quality_summary.needs_review} 个待复核 ·{" "}
           {t.quality_summary.repaired} 个已修复
+          {structured && (
+            <>
+              {" "}
+              · {t.quality_summary.segments} 段对齐 ·{" "}
+              {t.quality_summary.dead_links ?? 0} 个失效内链
+            </>
+          )}
         </p>
       )}
       {downloadable && (
         <section className="download-actions" aria-label="下载结果">
+          {structured && (
+            <a
+              className="btn-dl-html"
+              href={readerUrl(id)}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              对照阅读器
+            </a>
+          )}
           <a className="btn-dl-md" href={downloadResult(id)}>
             中文 Markdown
           </a>
@@ -306,12 +325,14 @@ export default function TaskDetail() {
               >
                 双语 Markdown
               </a>
-              <a
-                className="btn-dl-html"
-                href={downloadResult(id, "html", "bilingual")}
-              >
-                双栏 HTML
-              </a>
+              {!structured && (
+                <a
+                  className="btn-dl-html"
+                  href={downloadResult(id, "html", "bilingual")}
+                >
+                  双栏 HTML
+                </a>
+              )}
             </>
           )}
           <a className="btn-outline" href={downloadResult(id, "zip")}>
