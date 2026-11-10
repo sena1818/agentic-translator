@@ -197,7 +197,12 @@ class StructuredChunkTranslator:
                 break
             logger.warning("块 %s 未按 <seg> 协议输出，重试一次；输出开头: %s", chunk.chunk_id, raw.strip()[:120])
         if not outputs:
-            raise ValueError(f"模型未按 <seg> 协议输出（已重试）；输出开头: {raw.strip()[:80]}")
+            if not raw.strip():
+                raise ValueError(
+                    "模型返回的正文为空（已重试；推理模型可能把输出上限全部耗在思考上，可调低 api.reasoning_effort，如 none）"
+                )
+            excerpt = raw.strip()[:200].replace("\n", " ")
+            raise ValueError(f"模型未按 <seg> 协议输出（已重试；共 {len(raw)} 字符，开头：{excerpt}）")
 
         candidates = list(document_ir.iter_candidates(structured.blocks))
         outcomes = {

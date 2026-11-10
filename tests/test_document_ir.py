@@ -193,6 +193,24 @@ def test_engine_translates_structured_chunks(tmp_path):
     assert results[0].quality_report["passed"] is True
 
 
+def test_empty_model_output_fails_with_actionable_message(tmp_path, caplog):
+    # 推理模型把输出上限全部耗在思考上时，正文为空；错误信息应指向思考档位，并记入日志
+    engine = _engine(tmp_path, translator=lambda prompt: "")
+    with caplog.at_level("WARNING"):
+        _, results = _translate(engine, FIXTURE.read_text(encoding="utf-8"), tmp_path)
+    failed = [result for result in results if not result.success]
+    assert failed and all("正文为空" in result.translation for result in failed)
+    assert "reasoning_effort" in failed[0].translation
+    assert any("翻译失败" in record.getMessage() for record in caplog.records)
+
+
+def test_non_protocol_output_reports_excerpt(tmp_path):
+    engine = _engine(tmp_path, translator=lambda prompt: "Here is the translation: 你好世界")
+    _, results = _translate(engine, FIXTURE.read_text(encoding="utf-8"), tmp_path)
+    failed = [result for result in results if not result.success]
+    assert failed and "Here is the translation" in failed[0].translation
+
+
 def test_lost_formula_is_repaired_by_targeted_review(tmp_path):
     repaired_ids = []
 

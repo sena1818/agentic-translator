@@ -339,6 +339,7 @@ class TranslationEngine:
                 cached=False,
             )
         except Exception as e:
+            logger.warning("块 %s 翻译失败: %s", chunk.index, e)
             if progress_callback:
                 await progress_callback(
                     {"chunk_index": chunk.index, "chunk_id": chunk.chunk_id, "status": "failed", "error": str(e)}
