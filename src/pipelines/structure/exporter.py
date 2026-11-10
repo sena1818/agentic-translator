@@ -115,8 +115,9 @@ class StructuredExporter:
 
         translated_ast = copy.deepcopy(plan.ir.ast)
         _apply_units(translated_ast["blocks"], assemblies, lambda item: item.translated_blocks)
-        # 块对象与 translated_ast 共享，原地同步目录即可让 HTML、双语导出一并生效
+        # 块对象与 translated_ast 共享，原地改写即可让 HTML、双语导出一并生效
         sync_toc_entries(translated_ast["blocks"])
+        dedupe_glosses(translated_ast["blocks"])
         return AssembledDocument(
             plan=plan,
             chunks=assemblies,
@@ -253,11 +254,86 @@ def _apply_units(blocks: list[dict], assemblies: list[ChunkAssembly], choose) ->
         document_ir.set_block_at(blocks, path, new)
 
 
-def sync_toc_entries(blocks: list[dict]) -> int:
-    """目录项（列表项仅含一个指向标题的内部链接）的文字改为该标题的译文，返回同步条数。
+_GLOSS_RE = re.compile(
+    r"(?P<zh>[\u3400-\u9fff][\u3400-\u9fff·・\-]*)\s*[（(]\s*(?P<en>[A-Za-z][A-Za-z0-9 .'’\-]*?)\s*[)）]"
+    r"(?P<trail>\s*)(?=(?P<next>.?))",
+    re.DOTALL,
+)
+_SELF_GLOSS_RE = re.compile(r"(?<![A-Za-z0-9_])([A-Za-z][\w.\-’']*)\s*[（(]\1[)）]")
+_CJK_OR_PUNCT = re.compile(r"[\u3400-\u9fff\u3000-\u303f\uff00-\uffef“”‘’—…]")
 
-    目录与标题分属不同块、分别翻译，措辞可能不一致；正文里的交叉引用（"见第三节"）保留自身措辞。
+
+def dedupe_glosses(blocks: list[dict]) -> int:
+    """英文括注只在正文首次出现时保留：`超虚构 (Hyperstition)` 第二次起写成 `超虚构`。
+
+    标题（及随后同步的目录）一律不带括注且不计为首次出现；不依赖术语表，
+    模型自行添加的括注（如 `逃逸线（line of flight）`）同样去重。返回去掉的括注数。
     """
+    seen: set[str] = set()
+    removed = 0
+    toc_links = {id(link) for link in _toc_links(blocks)}
+
+    def make_rewrite(in_heading: bool):
+        def rewrite(text: str) -> str:
+            def replace(match: re.Match[str]) -> str:
+                nonlocal removed
+                key = re.sub(r"\s+", " ", match.group("en")).strip().lower()
+                if in_heading or key in seen:
+                    removed += 1
+                    # 括注两侧的空格只为隔开英文；去掉括注后若紧接中文/中文标点，空格一并去掉
+                    keep_space = match.group("trail") and not _CJK_OR_PUNCT.match(match.group("next") or "。")
+                    return match.group("zh") + (" " if keep_space else "")
+                seen.add(key)
+                return match.group(0)
+
+            # 原文保留不译的名字被模型自我括注："Ccru (Ccru)" → "Ccru"
+            text = _SELF_GLOSS_RE.sub(lambda match: match.group(1), text)
+            return _GLOSS_RE.sub(replace, text)
+
+        return rewrite
+
+    def visit_inlines(inlines: list[dict], in_heading: bool):
+        inline_codec.rewrite_text_runs(inlines, make_rewrite(in_heading))
+        for node in inlines:
+            kind = node["t"]
+            if kind == "Note":
+                visit_blocks(node["c"])
+            elif kind in inline_codec.PAIR_TAGS:
+                visit_inlines(inline_codec.pair_children(node), in_heading or id(node) in toc_links)
+
+    def visit_blocks(items: list[dict]):
+        for block in items:
+            if block["t"] == "Header":
+                visit_inlines(block["c"][2], True)
+            elif block["t"] in {"Para", "Plain"}:
+                visit_inlines(block["c"], False)
+            else:
+                for children in _child_lists(block):
+                    visit_blocks(children)
+
+    visit_blocks(blocks)
+    return removed
+
+
+def _child_lists(block: dict) -> list[list[dict]]:
+    """容器块的子块列表（含表格单元、图注、定义列表），供按文档顺序遍历。"""
+    kind, content = block["t"], block.get("c")
+    if kind == "Table":
+        _, caption, _, head, bodies, foot = content
+        rows = list(head[1]) + [row for body in bodies for row in body[2] + body[3]] + list(foot[1])
+        return [document_ir.caption_blocks(caption)] + [cell[4] for row in rows for cell in row[1]]
+    if kind == "Figure":
+        return [document_ir.caption_blocks(content[1]), content[2]]
+    if kind == "DefinitionList":
+        return [[{"t": "Plain", "c": term}] for term, _ in content] + [
+            definition for _, definitions in content for definition in definitions
+        ]
+    if kind == "LineBlock":
+        return [[{"t": "Plain", "c": line}] for line in content]
+    return document_ir.child_block_lists(block)
+
+
+def _header_inlines(blocks: list[dict]) -> dict[str, list[dict]]:
     headers: dict[str, list[dict]] = {}
 
     def collect(value):
@@ -271,10 +347,15 @@ def sync_toc_entries(blocks: list[dict]) -> int:
                 collect(item)
 
     collect(blocks)
-    synced = 0
+    return headers
+
+
+def _toc_links(blocks: list[dict], headers: dict | None = None) -> list[dict]:
+    """目录项里的链接：列表项仅含一个指向标题的内部链接。"""
+    headers = _header_inlines(blocks) if headers is None else headers
+    found: list[dict] = []
 
     def visit(value):
-        nonlocal synced
         if isinstance(value, dict):
             kind = value.get("t")
             items = value["c"] if kind == "BulletList" else value["c"][1] if kind == "OrderedList" else []
@@ -286,8 +367,7 @@ def sync_toc_entries(blocks: list[dict]) -> int:
                 if len(nodes) == 1 and nodes[0]["t"] == "Link":
                     target = nodes[0]["c"][2][0]
                     if target.startswith("#") and target[1:] in headers:
-                        nodes[0]["c"][1][:] = copy.deepcopy(headers[target[1:]])
-                        synced += 1
+                        found.append(nodes[0])
             for item in value.values():
                 visit(item)
         elif isinstance(value, list):
@@ -295,7 +375,19 @@ def sync_toc_entries(blocks: list[dict]) -> int:
                 visit(item)
 
     visit(blocks)
-    return synced
+    return found
+
+
+def sync_toc_entries(blocks: list[dict]) -> int:
+    """目录项（列表项仅含一个指向标题的内部链接）的文字改为该标题的译文，返回同步条数。
+
+    目录与标题分属不同块、分别翻译，措辞可能不一致；正文里的交叉引用（"见第三节"）保留自身措辞。
+    """
+    headers = _header_inlines(blocks)
+    links = _toc_links(blocks, headers)
+    for link in links:
+        link["c"][1][:] = copy.deepcopy(headers[link["c"][2][0][1:]])
+    return len(links)
 
 
 def _quote_form(block: dict) -> dict:

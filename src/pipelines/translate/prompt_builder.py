@@ -234,6 +234,38 @@ class TranslationPromptBuilder:
 """
         return ChatPromptTemplate.from_template(template)
 
+    def build_term_ledger_prompt(self) -> ChatPromptTemplate:
+        """术语账本：为全书反复出现的专名统一译名。"""
+        template = f"""{self.glossary_extractor_role}
+
+下面是从整本书中自动抽取的、反复出现但尚未收入术语表的候选专名，每条附首次出现的上下文。
+请为需要全书统一译法的条目给出唯一译名，保证同一个名字在几百个片段里始终译得一样。
+
+输出必须是 JSON 对象，格式如下：
+{{{{
+  "terms": [
+    {{{{"term": "原文", "translation": "译名", "keep": true}}}}
+  ]
+}}}}
+
+要求：
+1. 普通英语词汇（如句首大写的常用词）、无需统一的条目：keep 为 false
+2. 人名、地名：按通行音译只给中文，如「帕萨尼」；与【已有术语】中的全名保持一致（姓与全名用同一译法）
+3. 自造概念、组织、作品名：用「中文译名 (English)」格式
+4. 首字母缩写（如 AOE、CCRU）：通常保留原文，translation 写原文本身
+5. 不要输出 JSON 以外的任何文字
+
+【文档摘要】:
+{{summary}}
+
+【已有术语】(必须与之保持一致):
+{{existing_terms}}
+
+【候选专名】:
+{{candidates}}
+"""
+        return ChatPromptTemplate.from_template(template)
+
     def build_glossary_extraction_prompt(self) -> ChatPromptTemplate:
         template = f"""{self.glossary_extractor_role}
 

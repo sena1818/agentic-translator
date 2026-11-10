@@ -21,6 +21,7 @@ from ...domain.rules.chunk_planning import TextChunk
 from ...domain.rules.glossary_selection import respect_case as _respect_case
 from ...domain.rules.glossary_selection import select_relevant_glossary
 from ...infrastructure.document import pandoc
+from ...infrastructure.llm.rate_limits import QuotaExhaustedError, classify
 from .langchain_compat import StrOutputParser
 from .prompt_builder import TranslationPromptBuilder
 
@@ -60,8 +61,14 @@ class SegmentValidator:
         if tagged is None:
             return SegmentOutcome(None, None, [QualityIssue("missing", "high", "模型输出缺少该段", segment.seg_id)])
         decoded = inline_codec.decode(tagged, source_inlines)
+        # 模型自创的标签（常见：给术语加 <b1>）与多余闭合标签在解码时已被丢弃，文字不受影响，
+        # 只作轻微提示、不触发修复；真正写错的原子标签会在下面的骨架比对中报"缺少公式"等。
+        # 未闭合标签会让格式延续到段尾，仍需修复。
         issues = [
-            QualityIssue("structure", "medium", f"标签错误: {problem}", segment.seg_id) for problem in decoded.problems
+            QualityIssue(
+                "structure", "medium" if "未闭合" in problem else "low", f"标签错误: {problem}", segment.seg_id
+            )
+            for problem in decoded.problems
         ]
         severe, minor = inline_codec.compare_skeletons(source_inlines, decoded.inlines)
         issues += [QualityIssue("structure", "high", message, segment.seg_id) for message in severe]
@@ -205,9 +212,16 @@ class StructuredChunkTranslator:
                 raw = await chain.ainvoke(payload)
                 return raw, retry, time.monotonic() - start
             except Exception as exc:
+                if isinstance(exc, QuotaExhaustedError):
+                    raise
                 status = getattr(exc, "status_code", None)
                 if status is not None and 400 <= status < 500 and status not in {408, 409, 429}:
                     raise
+                kind, wait = classify(exc)
+                if kind == "rate" and retry < max_retries:
+                    # 服务端给出的等待时间比固定指数退避更可靠；没有提示时按分钟级窗口退避（上限 2 分钟）
+                    await asyncio.sleep(min((wait + 1) if wait else 15 * (retry + 1), 120))
+                    continue
                 if retry >= max_retries:
                     raise
                 await asyncio.sleep(2**retry)

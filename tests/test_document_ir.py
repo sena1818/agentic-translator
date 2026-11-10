@@ -441,3 +441,202 @@ def test_table_of_contents_follows_translated_headings():
     markdown = pandoc.blocks_to_markdown(ast, ast["blocks"])
     assert "-   [第一部分：开端](#one)" in markdown
     assert "See [the first part](#one)" in markdown  # 正文交叉引用保留原措辞
+
+
+# --------------------------------------------------------------------------- #
+# 免费层额度与 EPUB 链接修复（真实书籍实测暴露）
+# --------------------------------------------------------------------------- #
+
+
+def test_rate_limit_classification_distinguishes_daily_quota():
+    from src.infrastructure.llm.rate_limits import classify, parse_retry_seconds
+
+    class Err(Exception):
+        status_code = 429
+
+    daily = Err("Quota exceeded ... GenerateRequestsPerDayPerProjectPerModel-FreeTier. Please retry in 8h5m1.5s.")
+    minute = Err("Quota exceeded for requests per minute. Please retry in 34.2s.")
+    assert classify(daily)[0] == "daily"
+    assert classify(minute) == ("rate", pytest.approx(34.2))
+    assert parse_retry_seconds("Please retry in 1h2m3s") == 3723
+    assert classify(ValueError("boom")) == (None, None)
+
+
+def test_factory_falls_back_to_next_model_when_daily_quota_is_exhausted():
+    from src.infrastructure.llm import chat_model_factory
+    from src.infrastructure.llm.rate_limits import QuotaExhaustedError
+
+    calls = []
+
+    class Err(Exception):
+        status_code = 429
+
+    class FakeChat:
+        def __init__(self, model, **kwargs):
+            self.model = model
+
+        async def ainvoke(self, payload, config=None):
+            calls.append(self.model)
+            if self.model != "backup":
+                raise Err("Generate content requests per day limit exceeded on Free Tier")
+            return "ok"
+
+    class Cfg:
+        model_name = "primary"
+        api_key = "x"
+        api_base_url = "http://localhost"
+        translator_temperature = 0.3
+
+        def get(self, key, default=None):
+            return {"api.fallback_models": ["exhausted-too", "backup"]}.get(key, default)
+
+    original = chat_model_factory._ChatOpenAI
+    chat_model_factory._ChatOpenAI = FakeChat
+    try:
+        factory = chat_model_factory.ChatModelFactory.__new__(chat_model_factory.ChatModelFactory)
+        factory.config = Cfg()
+        factory._callbacks = []
+
+        class Budget:
+            def request(self):
+                import contextlib
+
+                return contextlib.AsyncExitStack()
+
+        factory.budget = Budget()
+        factory.model_names = ["primary", "exhausted-too", "backup"]
+        factory.exhausted = set()
+        translator = factory.create_translator()
+        assert asyncio.run(translator.ainvoke("hi")) == "ok"
+        assert asyncio.run(translator.ainvoke("again")) == "ok"
+        assert calls == ["primary", "exhausted-too", "backup", "backup"]  # 用完的模型不再重试
+
+        factory.exhausted = {"primary", "exhausted-too", "backup"}
+        with pytest.raises(QuotaExhaustedError):
+            asyncio.run(translator.ainvoke("none left"))
+    finally:
+        chat_model_factory._ChatOpenAI = original
+
+
+def test_epub_internal_links_survive_lost_paragraph_ids():
+    from src.pipelines.preprocess.artifact_cleaner import EpubArtifactCleaner
+
+    text = (
+        "[Foreword](#split_001.html#filepos843)\n\n[Part](#ch2.xhtml#sec)\n\n"
+        "[]{#split_001.html}\n\n# Foreword\n\nBody.\n\n::: {#ch2.xhtml#sec .section}\n# Part\n:::\n"
+    )
+    cleaned = EpubArtifactCleaner.repair_internal_links(text)
+    assert "](#split_001.html)" in cleaned  # 段落级锚点丢失 → 退回章首
+    assert "](#ch2.xhtml__sec)" in cleaned and "{#ch2.xhtml__sec" in cleaned
+    blocks = pandoc.markdown_to_ast(cleaned)["blocks"]
+    assert document_ir.collect_link_report(blocks)["dead_links"] == []
+
+
+def test_english_glosses_kept_only_at_first_body_mention():
+    from src.pipelines.structure.exporter import dedupe_glosses, sync_toc_entries
+
+    ast = pandoc.markdown_to_ast(
+        "- [超虚构 (Hyperstition) 回路](#c)\n\n# 超虚构 (Hyperstition) 回路 {#c}\n\n"
+        "超虚构 (Hyperstition) 在此。**超虚构 (Hyperstition)** 又出现，超虚构 (Hyperstition) and Ccru。[^1]\n\n"
+        "[^1]: 逃逸线（line of flight）与逃逸线（line of flight）。\n"
+    )
+    sync_toc_entries(ast["blocks"])
+    assert dedupe_glosses(ast["blocks"]) == 5  # 目录、标题、加粗、正文第三次、脚注第二次
+    markdown = pandoc.blocks_to_markdown(ast, ast["blocks"])
+    assert "-   [超虚构回路](#c)" in markdown and "# 超虚构回路 {#c}" in markdown
+    assert "超虚构 (Hyperstition) 在此。**超虚构** 又出现，超虚构 and Ccru。" in markdown
+    assert "逃逸线（line of flight）与逃逸线。" in markdown
+
+
+# --------------------------------------------------------------------------- #
+# 术语账本
+# --------------------------------------------------------------------------- #
+
+
+def test_term_candidates_skip_sentence_starters_and_glossary_terms():
+    from src.domain.rules.term_candidates import extract_term_candidates
+
+    text = (
+        "The ledger matters. Hamid Parsani wrote it, and Parsani revised it. Later Parsani's notes "
+        "mention the AOE twice, as the AOE knew. However this is not a name. However again. "
+        "See [link](http://Example.com/Parsani). The Hyperstition loop and Hyperstition again."
+    )
+    terms = {c.term: c.count for c in extract_term_candidates(text, {"Hyperstition": "超虚构 (Hyperstition)"})}
+    assert terms.get("Parsani") == 3  # 含所有格，链接地址里的不算
+    assert terms.get("AOE") == 2
+    assert "However" not in terms and "The" not in terms
+    assert "Hyperstition" not in terms  # 已在术语表
+
+
+def test_term_ledger_unifies_names_without_touching_caller_glossary(tmp_path):
+    ledger_calls = []
+
+    def analyst(prompt_value):
+        text = prompt_value.to_string()
+        if "候选专名" in text:
+            ledger_calls.append(1)
+            return (
+                '{"terms": [{"term": "Parsani", "translation": "帕萨尼", "keep": true},'
+                ' {"term": "Ccru", "translation": "Ccru", "keep": false}]}'
+            )
+        return '{"summary": "测试"}'
+
+    class Factory(FakeFactory):
+        def create_analyst(self):
+            return RunnableLambda(analyst)
+
+    from src.core.translator import TranslationEngine
+    from src.infrastructure.cache.translation_cache import TranslationCache
+
+    caller_glossary = {"Hamid Parsani": "哈米德·帕萨尼"}
+    text = "Hamid Parsani wrote. Later Parsani wrote again, and the Ccru read Parsani.\n\nCcru and Ccru.\n"
+
+    def run():
+        engine = TranslationEngine(
+            glossary=caller_glossary,
+            model_factory=Factory(),
+            cache=TranslationCache(tmp_path / "cache.db"),
+            config=_config(),
+            engine="native",
+        )
+        chunks = engine.plan_chunks(text)
+        asyncio.run(engine.translate_batch(text, tmp_path / "stream.md", prepared_chunks=chunks))
+        return engine
+
+    engine = run()
+    assert engine.term_ledger == {"Parsani": "帕萨尼"}
+    assert engine.glossary["Parsani"] == "帕萨尼" and "Ccru" not in engine.glossary
+    assert caller_glossary == {"Hamid Parsani": "哈米德·帕萨尼"}  # 不污染任务快照
+    run()
+    assert len(ledger_calls) == 1  # 第二次命中账本缓存
+
+
+def test_rate_limit_details_are_read_from_raw_response_body():
+    from src.infrastructure.llm.rate_limits import classify
+
+    class Response:
+        text = '[{"error": {"code": 429, "message": "requests per day limit exceeded. Please retry in 7h51m16s."}}]'
+
+    class Err(Exception):
+        status_code = 429
+        response = Response()
+
+    assert classify(Err("Error code: 429"))[0] == "daily"
+
+
+def test_scaled_numbers_written_in_chinese_units_are_accepted():
+    from src.core.validator import TranslationValidator
+
+    validator = TranslationValidator()
+    ok = validator.validate("only 55 million years; 120 million ago", "只有5500万年；1.2亿年前", {})
+    assert not any(issue.kind == "fidelity" for issue in ok.issues)
+    missing = validator.validate("only 55 million years", "只有很多年", {})
+    assert any(issue.kind == "fidelity" for issue in missing.issues)
+
+
+def test_self_gloss_of_untranslated_names_is_removed():
+    from src.pipelines.structure.exporter import dedupe_glosses
+
+    ast = pandoc.markdown_to_ast("传递给Ccru (Ccru) 的信息，AOE（AOE）也是。\n")
+    dedupe_glosses(ast["blocks"])
+    assert pandoc.blocks_to_markdown(ast, ast["blocks"]) == "传递给Ccru 的信息，AOE也是。"

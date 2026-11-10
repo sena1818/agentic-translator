@@ -55,7 +55,8 @@ class TranslationEngine:
             cache: chunk 翻译缓存，默认指向 data/translation_cache.db；测试可注入隔离缓存
         """
         self.config = config or get_config()
-        self.glossary = glossary or {}
+        # 复制一份：术语账本会原地并入本次运行的术语表，不能污染调用方（如任务的术语表快照）
+        self.glossary = dict(glossary or {})
 
         model_factory = model_factory or ChatModelFactory(self.config)
         self.llm_translator = model_factory.create_translator()
@@ -448,6 +449,8 @@ class TranslationEngine:
         else:
             self.document_profile = DocumentProfile.empty()
 
+        await self._prepare_term_ledger(text)
+
         if progress_callback:
             await progress_callback(
                 {
@@ -455,6 +458,40 @@ class TranslationEngine:
                     "total_chunks": len(chunks),
                 }
             )
+
+    async def _prepare_term_ledger(self, text: str) -> None:
+        """术语账本：为全书反复出现、术语表未覆盖的专名统一译名，并入本次运行的术语表。
+
+        结果按 (源文, 术语表, Prompt 指纹) 缓存，断点续跑时译名不变、块缓存仍然命中。
+        用户术语表优先，账本只补充缺失条目；各组件持有同一 dict，原地合并即刻生效。
+        """
+        self.term_ledger = {}
+        getter = getattr(self.config, "get", None)
+        if not (getter and getter("multi_agent.enabled", True) and getter("multi_agent.term_ledger.enabled")):
+            return
+        from ..pipelines.glossary.term_ledger import TermLedgerBuilder
+
+        key = "ledger:" + hashlib.sha256(
+            (
+                text
+                + json.dumps(self.glossary, ensure_ascii=False, sort_keys=True)
+                + str(getattr(self.config, "prompt_fingerprint", ""))
+                + str(self.config.get("multi_agent.term_ledger", {}))
+            ).encode()
+        ).hexdigest()
+        saved = await self.cache.get_profile(key) if hasattr(self.cache, "get_profile") else None
+        if saved is not None:
+            ledger = saved.get("terms", {})
+        else:
+            ledger = await TermLedgerBuilder(self.llm_analyst, self.config, self.prompt_builder).build(
+                text, self.glossary, self.document_profile.summary
+            )
+            if ledger and hasattr(self.cache, "set_profile"):
+                await self.cache.set_profile(key, {"terms": ledger})
+        self.term_ledger = {term: zh for term, zh in ledger.items() if term not in self.glossary}
+        self.glossary.update(self.term_ledger)
+        if self.term_ledger:
+            logger.info("术语账本：新增 %s 条统一译名", len(self.term_ledger))
 
     async def _process_one_chunk(
         self, chunk: TextChunk, output_manager: OutputManager, callback: Callable | None

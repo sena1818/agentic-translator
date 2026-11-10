@@ -10,6 +10,11 @@ api:
   api_key_env: "GEMINI_API_KEY"
   # 压低思考预算：实测 low 档保留全部标签，单段 ~1.5s；默认档 ~7.6s 且多耗 ~1200 token
   reasoning_effort: "low"
+  # 免费层按模型分别计每日额度（实测 gemini-3.5-flash 每天 20 次）：用完自动切换下一个
+  fallback_models:
+    - "gemini-2.5-flash"
+    - "gemini-3.5-flash-lite"
+    - "gemini-3.1-flash-lite"
 
   # LLM 参数
   translator:
@@ -28,9 +33,10 @@ concurrency:
 
 # 文本分块
 text_splitting:
-  chunk_size: 3600
-  target_chunk_size: 3200
-  min_chunk_size: 1200
+  # Gemini 上下文长，加大块以减少请求数（免费层按请求计额度）
+  chunk_size: 9000
+  target_chunk_size: 8000
+  min_chunk_size: 3000
   chunk_overlap: 200
   context_window: 1400
   separators: ["\n\n", "\n", ".", "!", "?", " ", ""]
@@ -119,3 +125,7 @@ multi_agent:
   analyst_max_chars: 12000
   analyst_max_sections: 12
   analyst_max_term_hints: 12
+  # 术语账本：翻译前统一全书反复出现的专名译名（一次额外调用），见 src/pipelines/glossary/term_ledger.py
+  term_ledger:
+    enabled: true
+    max_terms: 120

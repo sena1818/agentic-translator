@@ -293,3 +293,44 @@ def compare_skeletons(source: list[dict], translation: list[dict]) -> tuple[list
     if src_fmt != tgt_fmt:
         minor.append("行内格式（加粗/斜体等）数量与原文不同")
     return severe, minor
+
+
+def rewrite_text_runs(inlines: list[dict], rewrite) -> bool:
+    """对行内列表中连续的纯文本（Str/Space/SoftBreak）片段做字符串改写，就地替换。
+
+    非文本节点（格式、链接、公式、脚注……）原样保留并作为片段边界；返回是否有改动。
+    子节点由调用方自行递归。
+    """
+    changed = False
+    result: list[dict] = []
+    run: list[dict] = []
+
+    def flush():
+        nonlocal changed
+        if not run:
+            return
+        text = "".join(node["c"] if node["t"] == "Str" else " " for node in run)
+        new_text = rewrite(text)
+        if new_text != text:
+            changed = True
+            rebuilt: list[dict] = []
+            if text.startswith(" "):
+                rebuilt.append({"t": "Space"})
+            _append_text(rebuilt, new_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+            if text.endswith(" ") and (not rebuilt or rebuilt[-1]["t"] != "Space"):
+                rebuilt.append({"t": "Space"})
+            result.extend(rebuilt)
+        else:
+            result.extend(run)
+        run.clear()
+
+    for node in inlines:
+        if node["t"] in {"Str", "Space", "SoftBreak"}:
+            run.append(node)
+        else:
+            flush()
+            result.append(node)
+    flush()
+    if changed:
+        inlines[:] = result
+    return changed

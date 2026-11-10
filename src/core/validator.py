@@ -9,6 +9,25 @@ from dataclasses import dataclass, field
 
 from ..domain.rules.glossary_selection import term_occurs
 
+_SCALES = {"thousand": 1e3, "million": 1e6, "billion": 1e9, "trillion": 1e12}
+
+
+def _format_number(value: float) -> str:
+    return f"{value:.4f}".rstrip("0").rstrip(".")
+
+
+def _scaled_number_present(number: str, original: str, translation: str) -> bool:
+    """ "160 million" 译作 "1.6亿"、"55 million" 译作 "5500万" 是正确的中文写法，不算数字丢失。"""
+    match = re.search(rf"(?<![0-9A-Za-z_]){re.escape(number)}\s+(thousand|million|billion|trillion)\b", original, re.I)
+    if not match:
+        return False
+    value = float(number.replace(",", "")) * _SCALES[match.group(1).lower()]
+    compact = translation.replace(",", "").replace(" ", "")
+    variants = {f"{_format_number(value / 1e4)}万", f"{_format_number(value / 1e8)}亿", _format_number(value)}
+    if match.group(1).lower() == "thousand":
+        variants.add(f"{_format_number(value / 1e3)}千")
+    return any(variant in compact for variant in variants if not variant.startswith("0"))
+
 
 @dataclass
 class QualityIssue:
@@ -77,6 +96,7 @@ class TranslationValidator:
         number_re = r"(?<![0-9A-Za-z_])\d+(?:[.,]\d+)*(?![0-9A-Za-z_])"
         numbers = set(re.findall(number_re, original_text))
         missing = numbers - set(re.findall(number_re, translation))
+        missing = {number for number in missing if not _scaled_number_present(number, original_text, translation)}
         if missing:
             issues.append(QualityIssue("fidelity", "medium", "缺少原文数字: " + ", ".join(sorted(missing))))
         formulas = re.findall(r"\$\$[\s\S]*?\$\$|(?<!\$)\$[^$\n]+\$", original_text)
@@ -93,7 +113,14 @@ class TranslationValidator:
     def should_repair(self, report: QualityReport) -> bool:
         """是否值得触发修复"""
         repairable_kinds = {
-            "untranslated", "terminology", "markdown", "empty", "fidelity", "truncated", "structure", "missing",
+            "untranslated",
+            "terminology",
+            "markdown",
+            "empty",
+            "fidelity",
+            "truncated",
+            "structure",
+            "missing",
         }
         return any(issue.kind in repairable_kinds for issue in report.issues)
 

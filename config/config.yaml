@@ -114,3 +114,7 @@ multi_agent:
   analyst_max_chars: 12000
   analyst_max_sections: 12
   analyst_max_term_hints: 12
+  # 术语账本：翻译前统一全书反复出现的专名译名（一次额外调用），见 src/pipelines/glossary/term_ledger.py
+  term_ledger:
+    enabled: true
+    max_terms: 120

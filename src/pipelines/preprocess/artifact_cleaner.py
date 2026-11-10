@@ -29,6 +29,7 @@ class EpubArtifactCleaner:
 
     def clean(self, text: str, source_type: str = "epub") -> str:
         self.rules = self._resolve_rules(source_type)
+        text = self.repair_internal_links(text)
         text = self._remove_pagebreak_blocks(text)
         text = self._remove_svg_wrapper_blocks(text)
         text = self._merge_multiline_image_attributes(text)
@@ -113,6 +114,30 @@ class EpubArtifactCleaner:
             r"\1",
             text,
         )
+
+    @staticmethod
+    def repair_internal_links(text: str) -> str:
+        """修复 EPUB 内部链接的目标。
+
+        pandoc 读 EPUB 时会丢掉段落上的 id（Calibre 常把锚点放在 `<p id="filepos843">` 上），
+        目录里的 `#index_split_001.html#filepos843` 因此失效；但每个文件一级的锚点
+        `index_split_001.html` 仍在。目标不存在而所在文件存在时，退回指向文件开头（章首），
+        至少保证目录能跳到正确的章节。
+        """
+        ids = set(re.findall(r"\{#([^\s}]+)", text))
+        if not ids:
+            return text
+
+        def retarget(match: re.Match[str]) -> str:
+            target = match.group(1)
+            if target not in ids and "#" in target and target.split("#", 1)[0] in ids:
+                target = target.split("#", 1)[0]
+            return f"](#{target.replace('#', '__')})"
+
+        text = re.sub(r"\]\(#([^)\s]+)\)", retarget, text)
+        # pandoc 读 Markdown 时 id 里的 `#` 之后才算 id（`{#ch2.xhtml#sec}` → `sec`），
+        # 统一改写为 `__`，既保持链接可解析，也避免不同章节的同名锚点相撞
+        return re.sub(r"\{#([^\s}]+)", lambda m: "{#" + m.group(1).replace("#", "__"), text)
 
     def _remove_anchor_lines(self, text: str) -> str:
         # 被内部链接（目录、交叉引用、脚注回链）指向的锚点是跳转目标，必须保留

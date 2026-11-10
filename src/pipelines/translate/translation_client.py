@@ -16,6 +16,7 @@ from ...core.chunk_planner import TextChunk
 from ...domain.models.translation_models import DocumentProfile
 from ...domain.rules.glossary_selection import respect_case as _respect_case
 from ...domain.rules.glossary_selection import select_relevant_glossary
+from ...infrastructure.llm.rate_limits import QuotaExhaustedError, classify
 from .langchain_compat import StrOutputParser
 from .prompt_builder import TranslationPromptBuilder
 
@@ -69,9 +70,16 @@ class TranslationClient:
                 duration = time.monotonic() - start_time
                 return translation, retry, duration
             except Exception as exc:
+                if isinstance(exc, QuotaExhaustedError):
+                    raise
                 status = getattr(exc, "status_code", None)
                 if status is not None and 400 <= status < 500 and status not in {408, 409, 429}:
                     raise
+                kind, wait = classify(exc)
+                if kind == "rate" and retry < max_retries:
+                    # 服务端给出的等待时间比固定指数退避更可靠；没有提示时按分钟级窗口退避（上限 2 分钟）
+                    await asyncio.sleep(min((wait + 1) if wait else 15 * (retry + 1), 120))
+                    continue
                 if retry < max_retries:
                     await asyncio.sleep(2**retry)
                 else:
