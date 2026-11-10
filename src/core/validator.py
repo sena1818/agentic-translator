@@ -7,6 +7,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from ..domain.rules.glossary_selection import term_appears_in
+
 
 @dataclass
 class QualityIssue:
@@ -121,7 +123,8 @@ class TranslationValidator:
             if checked >= self.max_glossary_checks:
                 break
 
-            if en_term.lower() not in original_text.lower():
+            # 与 select_relevant_glossary 同一匹配口径（单词边界 + 复数/所有格）
+            if not term_appears_in(en_term, original_text):
                 continue
 
             checked += 1
