@@ -112,7 +112,22 @@ function ChunkEditor({
       {!!chunk.quality_report.issues?.length && (
         <ul className="quality-issues">
           {chunk.quality_report.issues.map((issue, i) => (
-            <li key={i}>{issue.message}</li>
+            <li key={i}>
+              {issue.message}
+              {issue.segment !== undefined && (
+                <>
+                  {" "}
+                  <a
+                    className="issue-locate"
+                    href={`${readerUrl(id)}#seg-${issue.segment}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    在对照阅读器中定位
+                  </a>
+                </>
+              )}
+            </li>
           ))}
         </ul>
       )}
@@ -163,6 +178,7 @@ export default function TaskDetail() {
   const client = useQueryClient();
   const [page, setPage] = useState(1);
   const [reviewOnly, setReviewOnly] = useState(false);
+  const [readerOpen, setReaderOpen] = useState(false);
   const task = useQuery({
     queryKey: ["task", id],
     queryFn: () => getTaskStatus(id),
@@ -303,17 +319,36 @@ export default function TaskDetail() {
           )}
         </p>
       )}
+      {!!t.quality_summary?.ledger_terms && (
+        <p className="ledger-summary">
+          术语账本 {t.quality_summary.ledger_terms} 条
+          {!!t.quality_summary.ledger_terms_added &&
+            `（本次新增 ${t.quality_summary.ledger_terms_added} 条）`}
+          ：自动统一全书人名与专名译法，已保存为术语表，审阅可选。{" "}
+          <Link to="/glossary">去术语表审阅 →</Link>
+        </p>
+      )}
       {downloadable && (
         <section className="download-actions" aria-label="下载结果">
           {structured && (
-            <a
-              className="btn-dl-html"
-              href={readerUrl(id)}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              对照阅读器
-            </a>
+            <>
+              <button
+                type="button"
+                className="btn-dl-html"
+                aria-expanded={readerOpen}
+                onClick={() => setReaderOpen((open) => !open)}
+              >
+                {readerOpen ? "收起对照阅读" : "在页面中对照阅读"}
+              </button>
+              <a
+                className="btn-outline"
+                href={readerUrl(id)}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                新窗口打开阅读器
+              </a>
+            </>
           )}
           <a className="btn-dl-md" href={downloadResult(id)}>
             中文 Markdown
@@ -339,6 +374,15 @@ export default function TaskDetail() {
           <a className="btn-outline" href={downloadResult(id, "zip")}>
             图片资源 ZIP
           </a>
+        </section>
+      )}
+      {downloadable && structured && readerOpen && (
+        <section className="reader-embed" aria-label="对照阅读">
+          <iframe
+            title="对照阅读器"
+            src={readerUrl(id)}
+            sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
+          />
         </section>
       )}
       {!active && (

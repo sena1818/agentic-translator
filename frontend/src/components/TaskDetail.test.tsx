@@ -128,7 +128,7 @@ it("结构化导出的任务提供对照阅读器入口，并替代旧双栏 HTM
       </QueryClientProvider>
     </MemoryRouter>,
   );
-  const reader = await screen.findByRole("link", { name: "对照阅读器" });
+  const reader = await screen.findByRole("link", { name: "新窗口打开阅读器" });
   expect(reader).toHaveAttribute(
     "href",
     expect.stringContaining("format=html&inline=true"),
@@ -138,4 +138,78 @@ it("结构化导出的任务提供对照阅读器入口，并替代旧双栏 HTM
     screen.queryByRole("link", { name: "双栏 HTML" }),
   ).not.toBeInTheDocument();
   expect(screen.getByText(/12 段对齐/)).toBeInTheDocument();
+});
+it("问题段可在对照阅读器中定位，账本可去术语表审阅，阅读器可在页面内展开", async () => {
+  vi.mocked(api.getTaskStatus).mockResolvedValue({
+    ...task,
+    quality_summary: {
+      total: 1,
+      failed: 0,
+      needs_review: 1,
+      repaired: 0,
+      structured: 1,
+      segments: 9,
+      dead_links: 0,
+      ledger_terms: 98,
+      ledger_terms_added: 3,
+    },
+  });
+  vi.mocked(api.getChunks).mockResolvedValue({
+    total: 1,
+    revision: "v",
+    chunks: [
+      {
+        chunk_index: 0,
+        chunk_id: "one",
+        original: "Kaye",
+        translation: "凯",
+        success: true,
+        cached: false,
+        repaired: false,
+        quality_report: {
+          passed: false,
+          issues: [
+            {
+              kind: "terminology",
+              severity: "medium",
+              message: "[段 3] 术语未统一",
+              segment: 41,
+            },
+          ],
+        },
+      },
+    ],
+  });
+  render(
+    <MemoryRouter initialEntries={["/tasks/demo"]}>
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <App>
+          <Routes>
+            <Route path="/tasks/:taskId" element={<TaskDetail />} />
+          </Routes>
+        </App>
+      </QueryClientProvider>
+    </MemoryRouter>,
+  );
+  const locate = await screen.findByRole("link", {
+    name: "在对照阅读器中定位",
+  });
+  expect(locate).toHaveAttribute("href", expect.stringContaining("#seg-41"));
+  expect(
+    screen.getByText(/术语账本 98 条（本次新增 3 条）/),
+  ).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "去术语表审阅 →" })).toHaveAttribute(
+    "href",
+    "/glossary",
+  );
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "在页面中对照阅读" }));
+  expect(screen.getByTitle("对照阅读器")).toHaveAttribute(
+    "src",
+    expect.stringContaining("inline=true"),
+  );
 });

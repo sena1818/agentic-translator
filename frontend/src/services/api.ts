@@ -254,7 +254,13 @@ export interface ChunkResult {
   quality_report: {
     passed?: boolean;
     reviewed?: boolean;
-    issues?: Array<{ kind: string; severity: string; message: string }>;
+    issues?: Array<{
+      kind: string;
+      severity: string;
+      message: string;
+      /** 结构化模式下的全书段编号，可在对照阅读器中定位 */
+      segment?: number;
+    }>;
   };
 }
 export interface ChunkPage {
