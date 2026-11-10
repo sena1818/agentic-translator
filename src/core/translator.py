@@ -34,7 +34,7 @@ from .validator import QualityReport, TranslationValidator
 logger = logging.getLogger(__name__)
 
 # 账本候选规则或提示词变化时递增，避免断点续跑复用旧版账本
-LEDGER_VERSION = "ledger-v2"
+LEDGER_VERSION = "ledger-v3"
 
 
 class TranslationEngine:

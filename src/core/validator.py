@@ -24,9 +24,76 @@ def _scaled_number_present(number: str, original: str, translation: str) -> bool
     value = float(number.replace(",", "")) * _SCALES[match.group(1).lower()]
     compact = translation.replace(",", "").replace(" ", "")
     variants = {f"{_format_number(value / 1e4)}万", f"{_format_number(value / 1e8)}亿", _format_number(value)}
+    if value.is_integer() and str(int(value)) in _chinese_numbers(translation):  # "一亿六千万"
+        return True
     if match.group(1).lower() == "thousand":
         variants.add(f"{_format_number(value / 1e3)}千")
     return any(variant in compact for variant in variants if not variant.startswith("0"))
+
+
+def _term_rendered(preferred: str, translation: str) -> bool:
+    """译名是否在译文中体现。
+
+    - 保留原文的拉丁译名（AxSys / Axsys、Ccru）大小写不敏感；
+    - 形容词式译名的 "的" 不强求（"利莫里亚的" 在句中自然写成 "利莫里亚人"、"利莫里亚时间战争"）。
+    """
+    if not preferred:
+        return False
+    if preferred in translation:
+        return True
+    if preferred.isascii() and preferred.lower() in translation.lower():
+        return True
+    stem = preferred[:-1] if preferred.endswith("的") and len(preferred) > 2 else ""
+    return bool(stem) and stem in translation
+
+
+_CN_DIGITS = {
+    "零": 0,
+    "〇": 0,
+    "一": 1,
+    "二": 2,
+    "两": 2,
+    "三": 3,
+    "四": 4,
+    "五": 5,
+    "六": 6,
+    "七": 7,
+    "八": 8,
+    "九": 9,
+}
+_CN_UNITS = {"十": 10, "百": 100, "千": 1000}
+_CN_NUMERAL_RE = re.compile(r"[零〇一二两三四五六七八九十百千万亿]+")
+
+
+def _parse_chinese_numeral(text: str) -> int | None:
+    """解析 "一亿六千万"、"七十"、"三" 这类中文数字；无法解析返回 None。"""
+    total, section, number = 0, 0, 0
+    for char in text:
+        if char in _CN_DIGITS:
+            number = _CN_DIGITS[char]
+        elif char in _CN_UNITS:
+            section += (number or 1) * _CN_UNITS[char]
+            number = 0
+        elif char == "万":
+            section = (section + number) * 10_000
+            total += section
+            section, number = 0, 0
+        elif char == "亿":
+            total = (total + section + number) * 100_000_000
+            section, number = 0, 0
+        else:
+            return None
+    return total + section + number
+
+
+def _chinese_numbers(translation: str) -> set[str]:
+    """译文中以中文数字写出的数值（转为阿拉伯数字字符串），用于数字保真比对。"""
+    values = set()
+    for match in _CN_NUMERAL_RE.finditer(translation):
+        value = _parse_chinese_numeral(match.group(0))
+        if value is not None:
+            values.add(str(value))
+    return values
 
 
 @dataclass
@@ -96,7 +163,13 @@ class TranslationValidator:
         number_re = r"(?<![0-9A-Za-z_])\d+(?:[.,]\d+)*(?![0-9A-Za-z_])"
         numbers = set(re.findall(number_re, original_text))
         missing = numbers - set(re.findall(number_re, translation))
-        missing = {number for number in missing if not _scaled_number_present(number, original_text, translation)}
+        written_in_chinese = _chinese_numbers(translation)
+        missing = {
+            number
+            for number in missing
+            if number.replace(",", "") not in written_in_chinese
+            and not _scaled_number_present(number, original_text, translation)
+        }
         if missing:
             issues.append(QualityIssue("fidelity", "medium", "缺少原文数字: " + ", ".join(sorted(missing))))
         formulas = re.findall(r"\$\$[\s\S]*?\$\$|(?<!\$)\$[^$\n]+\$", original_text)
@@ -163,9 +236,7 @@ class TranslationValidator:
 
             checked += 1
             preferred = zh_term.split(" (", 1)[0].strip()
-            if preferred and preferred in translation:
-                continue
-            if zh_term in translation:
+            if _term_rendered(preferred, translation) or zh_term in translation:
                 continue
 
             issues.append(

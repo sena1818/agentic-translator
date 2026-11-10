@@ -73,11 +73,43 @@ class SegmentValidator:
         severe, minor = inline_codec.compare_skeletons(source_inlines, decoded.inlines)
         issues += [QualityIssue("structure", "high", message, segment.seg_id) for message in severe]
         issues += [QualityIssue("format", "low", message, segment.seg_id) for message in minor]
-        report = self.validator.validate(segment.plain, inline_codec.plain_text(decoded.inlines), self.glossary)
+        translated_plain = inline_codec.plain_text(decoded.inlines)
+        report = self.validator.validate(segment.plain, translated_plain, self.glossary)
+        if self._left_untranslated(segment.plain, translated_plain):
+            issues.append(QualityIssue("untranslated", "medium", f"该段未翻译: {segment.plain[:60]}", segment.seg_id))
         for issue in report.issues:
             issue.segment = segment.seg_id
         issues += report.issues
         return SegmentOutcome(tagged, decoded.inlines, issues)
+
+    def _left_untranslated(self, source: str, translation: str) -> bool:
+        """短段落被原样照抄（如标题 "Part-2"）——长段落由残留英文检查覆盖。
+
+        以下保留原文是正当的，不算未翻译：网址/邮箱/文件名、参考文献条目、
+        全部由大写开头专名组成的段（Kulili、Leamington Spa）、术语表中保留原文的条目与缩写。
+        """
+        source = source.strip()
+        if translation.strip() != source or re.search(r"[\u3400-\u9fff]", source):
+            return False
+        if _STRUCTURAL_LABEL.match(source):
+            return True
+        if re.search(r"@|https?://|www\.|\w\.(?:com|net|org|edu|html?)\b", source) or (
+            " " not in source and re.search(r"[_./]", source)
+        ):
+            return False
+        if "," in source and re.search(r"\b(?:1[5-9]|20)\d{2}\b", source):  # 参考文献
+            return False
+        kept = {
+            token.lower()
+            for term, zh in self.glossary.items()
+            if zh.split(" (", 1)[0].strip().lower() == term.lower()
+            for token in re.findall(r"[A-Za-z]+", term)
+        }
+        words = re.findall(r"[A-Za-z][A-Za-z'’]{2,}", source)
+        return any(word[0].islower() and word.lower() not in kept for word in words)
+
+
+_STRUCTURAL_LABEL = re.compile(r"^(?:Part|Chapter|Section|Appendix|Book|Volume|Vol\.)[\s\-]*[\dIVXLC]+\b", re.I)
 
 
 class StructuredChunkTranslator:

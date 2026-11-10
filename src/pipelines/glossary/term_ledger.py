@@ -75,8 +75,8 @@ class TermLedgerBuilder:
                 continue
             term = str(item.get("term", "")).strip()
             translation = str(item.get("translation", "")).strip()
-            if term in names and translation:
-                ledger[term] = translation
+            if term in names and translation and term.lower() not in {key.lower() for key in ledger}:
+                ledger[term] = translation  # 大小写变体（AxSys / Axsys）只保留第一条
         return ledger
 
 

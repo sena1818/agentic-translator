@@ -666,3 +666,27 @@ def test_term_candidates_do_not_split_proper_noun_phrases():
     terms = {c.term for c in extract_term_candidates(text, {})}
     assert {"New York", "Sunken Track", "Parsani"} <= terms
     assert not terms & {"York", "New", "Track", "Sunken", "Despite", "Later Parsani"}
+
+
+def test_full_book_false_positives_are_gone():
+    """整本 Ccru 实测（DeepSeek）暴露的误报：大小写变体、形容词译名、中文数字、照抄的短标题。"""
+    from src.core.validator import TranslationValidator
+    from src.pipelines.translate.structured_translation import SegmentValidator
+
+    validator = TranslationValidator()
+    glossary = {"AxSys": "AxSys", "Lemurian": "利莫里亚的", "Hyper-C": "Hyper-C"}
+    cases = [
+        ("AxSys rules", "Axsys 统治"),
+        ("Lemurian time", "利莫里亚时间"),
+        ("a $300 million campaign", "一场耗资三亿美元的广告"),
+        ("160 million years", "一亿六千万年"),
+        ("Part-1", "第一部分"),
+    ]
+    for source, translation in cases:
+        issues = validator.validate(source, translation, glossary).issues
+        assert not [i for i in issues if i.kind in {"fidelity", "terminology"}], (source, issues)
+
+    segments = SegmentValidator(validator, glossary)
+    assert segments._left_untranslated("Part-2", "Part-2")
+    assert not segments._left_untranslated("Hyper-C", "Hyper-C")
+    assert not segments._left_untranslated("AOE", "AOE")
