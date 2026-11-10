@@ -199,7 +199,7 @@ _JS = r"""
 
   // ---- 点击与悬停联动 ----
   document.addEventListener('click', (event) => {
-    const ref = event.target.closest('a.footnote-ref');
+    const ref = event.target.closest('a.footnote-ref, a.endnote-ref');
     if (ref) { event.preventDefault(); openNote(ref); return; }
     if (!event.target.closest('.popover')) closeNote();
     if (event.target.closest('a')) return;
@@ -256,10 +256,11 @@ _JS = r"""
   // ---- 脚注浮层 ----
   const popover = $('#popover');
   function openNote(ref) {
-    const note = document.getElementById(decodeURIComponent(ref.getAttribute('href').slice(1)));
+    let note = document.getElementById(decodeURIComponent(ref.getAttribute('href').slice(1)));
     if (!note) return;
+    if (note.classList.contains('endnote')) note = note.closest('li') || note.parentElement;  // 章末尾注
     const clone = note.cloneNode(true);
-    clone.querySelectorAll('.footnote-back').forEach((e) => e.remove());
+    clone.querySelectorAll('.footnote-back, .endnote-back').forEach((e) => e.remove());
     popover.innerHTML = clone.innerHTML;
     popover.classList.add('show');
     const rect = ref.getBoundingClientRect();

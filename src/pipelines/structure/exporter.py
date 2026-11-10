@@ -18,6 +18,7 @@ from pathlib import Path
 
 from ...domain.document import document_ir, inline_codec
 from ...infrastructure.document import pandoc
+from .endnotes import find_endnote_sections, link_endnotes
 from .html_template import render_reader_html
 from .planner import StructuredDocumentPlanner, StructuredPlan
 
@@ -38,6 +39,7 @@ class AssembledDocument:
     chunks: list[ChunkAssembly]
     translated_ast: dict
     link_report: dict
+    endnote_sections: list = field(default_factory=list)
 
     @property
     def stats(self) -> dict:
@@ -119,11 +121,14 @@ class StructuredExporter:
         sync_toc_entries(translated_ast["blocks"])
         dedupe_glosses(translated_ast["blocks"])
         normalize_cjk_quotes(translated_ast["blocks"])
+        endnote_sections = find_endnote_sections(plan.ir.ast["blocks"])
+        link_endnotes(translated_ast["blocks"], endnote_sections)
         return AssembledDocument(
             plan=plan,
             chunks=assemblies,
             translated_ast=translated_ast,
             link_report=document_ir.collect_link_report(translated_ast["blocks"]),
+            endnote_sections=endnote_sections,
         )
 
     # ------------------------------------------------------------------ #
@@ -181,6 +186,8 @@ class StructuredExporter:
 
         _apply_units(source_ast["blocks"], document.chunks, wrapped_source)
         _apply_units(target_ast["blocks"], document.chunks, wrapped_target)
+        for ast in (source_ast, target_ast):
+            link_endnotes(ast["blocks"], document.endnote_sections)
         for ast in (source_ast, target_ast):
             _drop_unsafe_raw(ast["blocks"])
         source_html = pandoc.blocks_to_html(source_ast, source_ast["blocks"], "src-")

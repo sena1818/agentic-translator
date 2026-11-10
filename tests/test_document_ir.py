@@ -752,3 +752,33 @@ def test_bibliography_sections_are_kept_verbatim():
     assert "The end of the essay." in plains  # 下一个同级标题后恢复翻译
     off = StructuredDocumentPlanner(keep_bibliography=False).plan(text)
     assert any("Conrad" in seg.plain for chunk in off.chunks for seg in chunk.structured.segments)
+
+
+# --------------------------------------------------------------------------- #
+# 尾注链接化
+# --------------------------------------------------------------------------- #
+
+
+def test_endnotes_are_linked_both_ways_even_when_the_list_is_split():
+    from src.pipelines.structure.endnotes import find_endnote_sections, link_endnotes
+
+    text = (
+        "### Chapter\n\nKaye spoke^1^ and wrote^2^, then left^3^. Squared x^2^ is not a note? It is: 2.\n\n"
+        "#### Notes\n\n1. First note.\n2. Second note.\n\n> A quoted aside inside note two.\n\n3. Third note.\n\n"
+        "### Next chapter\n\nNo notes here^1^.\n"
+    )
+    ast = pandoc.markdown_to_ast(text)
+    sections = find_endnote_sections(ast["blocks"])
+    assert len(sections) == 1 and len(sections[0].list_indices) == 2
+    assert link_endnotes(ast["blocks"], sections) == 4  # ^1^ ^2^ ^3^ 与第二个 ^2^；下一章的 ^1^ 不在范围内
+    markdown = pandoc.blocks_to_markdown(ast, ast["blocks"])
+    assert "#endnote-1-3" in markdown and "#endnote-1-ref-3" in markdown
+    assert "No notes here^1^" in markdown
+    assert document_ir.collect_link_report(ast["blocks"])["dead_links"] == []
+
+
+def test_paragraph_notes_without_numbers_are_left_alone():
+    from src.pipelines.structure.endnotes import find_endnote_sections
+
+    ast = pandoc.markdown_to_ast("# A\n\nText^1^.\n\n## Notes\n\nSome prose about the system.\n")
+    assert find_endnote_sections(ast["blocks"]) == []
