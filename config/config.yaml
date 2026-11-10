@@ -58,7 +58,8 @@ server:
 quality:
   max_fix_attempts: 1
   enable_qa_check: true
-  untranslated_word_span: 12
+  untranslated_word_span: 12  # 连续英文词数阈值（允许标点间隔，被中文或段落边界打断）
+  untranslated_latin_ratio: 0.7  # 段落英文词数达标且拉丁字母占比 >= 该值视为未翻译；0 关闭
   max_glossary_checks: 25
   qa_checks:
     - "terminology"  # 术语一致性

@@ -72,6 +72,7 @@ class TranslationEngine:
         self.validator = TranslationValidator(
             untranslated_word_span=self.config.untranslated_word_span,
             max_glossary_checks=self.config.max_glossary_checks,
+            untranslated_latin_ratio=getattr(self.config, "untranslated_latin_ratio", 0.7),
         )
         self.cache = cache or TranslationCache(self.config.root_dir / "data" / "translation_cache.db")
         self.document_profile = DocumentProfile.empty()

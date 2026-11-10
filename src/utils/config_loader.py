@@ -189,6 +189,11 @@ class Config:
         return self.get("quality.untranslated_word_span", 12)
 
     @property
+    def untranslated_latin_ratio(self) -> float:
+        """段落级未翻译判定的拉丁字母占比阈值"""
+        return self.get("quality.untranslated_latin_ratio", 0.7)
+
+    @property
     def max_glossary_checks(self) -> int:
         """每块最多检查多少术语"""
         return self.get("quality.max_glossary_checks", 25)
