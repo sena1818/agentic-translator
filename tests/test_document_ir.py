@@ -439,7 +439,8 @@ def test_table_of_contents_follows_translated_headings():
     )
     assert sync_toc_entries(ast["blocks"]) == 1
     markdown = pandoc.blocks_to_markdown(ast, ast["blocks"])
-    assert "-   [第一部分：开端](#one)" in markdown
+    # 旧版 pandoc 在列表符后输出 3 个空格，新版（如 3.8）只输出 1 个
+    assert re.search(r"^-\s+\[第一部分：开端\]\(#one\)", markdown, re.M)
     assert "See [the first part](#one)" in markdown  # 正文交叉引用保留原措辞
 
 
@@ -543,7 +544,7 @@ def test_english_glosses_kept_only_at_first_body_mention():
     sync_toc_entries(ast["blocks"])
     assert dedupe_glosses(ast["blocks"]) == 5  # 目录、标题、加粗、正文第三次、脚注第二次
     markdown = pandoc.blocks_to_markdown(ast, ast["blocks"])
-    assert "-   [超虚构回路](#c)" in markdown and "# 超虚构回路 {#c}" in markdown
+    assert re.search(r"^-\s+\[超虚构回路\]\(#c\)", markdown, re.M) and "# 超虚构回路 {#c}" in markdown
     assert "超虚构 (Hyperstition) 在此。**超虚构** 又出现，超虚构 and Ccru。" in markdown
     assert "逃逸线（line of flight）与逃逸线。" in markdown
 
