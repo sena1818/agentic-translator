@@ -187,13 +187,17 @@ class StructuredChunkTranslator:
             "section_title": " > ".join(chunk.section_path) if chunk.section_path else chunk.section_title,
         }
         prompt = self.prompt_builder.build_structured_translation_prompt()
-        raw, retry, duration = await self._invoke(
-            prompt | self.llm_translator | StrOutputParser(),
-            {**common, "context": chunk.context_text or "无", "segments": structured.tagged_payload()},
-        )
-        outputs = parse_segments(raw)
+        payload = {**common, "context": chunk.context_text or "无", "segments": structured.tagged_payload()}
+        outputs: dict[int, str] = {}
+        # 模型偶尔不按 <seg> 协议输出（全书实测 185 块中 1 块，重试即成功）：再请求一次，仍失败才判块失败
+        for _attempt in range(2):
+            raw, retry, duration = await self._invoke(prompt | self.llm_translator | StrOutputParser(), payload)
+            outputs = parse_segments(raw)
+            if outputs:
+                break
+            logger.warning("块 %s 未按 <seg> 协议输出，重试一次；输出开头: %s", chunk.chunk_id, raw.strip()[:120])
         if not outputs:
-            raise ValueError("模型未按 <seg> 协议输出")
+            raise ValueError(f"模型未按 <seg> 协议输出（已重试）；输出开头: {raw.strip()[:80]}")
 
         candidates = list(document_ir.iter_candidates(structured.blocks))
         outcomes = {

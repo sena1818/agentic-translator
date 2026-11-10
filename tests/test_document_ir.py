@@ -793,3 +793,17 @@ def test_residual_english_words_are_caught_but_invented_words_are_not():
     if _HAS_WORDFREQ:
         assert _residual_english_words(invented, {}) == []
     assert _residual_english_words("Short 中文 text", {}) == []
+
+
+def test_protocol_violation_is_retried_once(tmp_path):
+    calls = []
+
+    def flaky(prompt_value):
+        calls.append(1)
+        if len(calls) == 1:
+            return "抱歉，我无法按格式输出。"
+        return _translate_all(prompt_value)
+
+    engine = _engine(tmp_path, translator=flaky)
+    _, results = _translate(engine, "A single paragraph to translate.\n", tmp_path)
+    assert results[0].success and len(calls) == 2
