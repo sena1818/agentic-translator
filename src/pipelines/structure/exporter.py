@@ -118,6 +118,7 @@ class StructuredExporter:
         # 块对象与 translated_ast 共享，原地改写即可让 HTML、双语导出一并生效
         sync_toc_entries(translated_ast["blocks"])
         dedupe_glosses(translated_ast["blocks"])
+        normalize_cjk_quotes(translated_ast["blocks"])
         return AssembledDocument(
             plan=plan,
             chunks=assemblies,
@@ -313,6 +314,41 @@ def dedupe_glosses(blocks: list[dict]) -> int:
 
     visit_blocks(blocks)
     return removed
+
+
+_CJK_SINGLE_QUOTED = re.compile(r"‘([^‘’\n]*[\u3400-\u9fff][^‘’\n]*)’")
+
+
+def normalize_cjk_quotes(blocks: list[dict]) -> int:
+    """中文译文里沿用的英文单引号 ‘…’ 统一为中文双引号 “…”（只改内容含中文的引号）。"""
+    changed = 0
+
+    def rewrite(text: str) -> str:
+        nonlocal changed
+        new, count = _CJK_SINGLE_QUOTED.subn(r"“\1”", text)
+        changed += count
+        return new
+
+    def visit_inlines(inlines: list[dict]):
+        inline_codec.rewrite_text_runs(inlines, rewrite)
+        for node in inlines:
+            if node["t"] == "Note":
+                visit_blocks(node["c"])
+            elif node["t"] in inline_codec.PAIR_TAGS:
+                visit_inlines(inline_codec.pair_children(node))
+
+    def visit_blocks(items: list[dict]):
+        for block in items:
+            if block["t"] == "Header":
+                visit_inlines(block["c"][2])
+            elif block["t"] in {"Para", "Plain"}:
+                visit_inlines(block["c"])
+            else:
+                for children in _child_lists(block):
+                    visit_blocks(children)
+
+    visit_blocks(blocks)
+    return changed
 
 
 def _child_lists(block: dict) -> list[list[dict]]:

@@ -690,3 +690,12 @@ def test_full_book_false_positives_are_gone():
     assert segments._left_untranslated("Part-2", "Part-2")
     assert not segments._left_untranslated("Hyper-C", "Hyper-C")
     assert not segments._left_untranslated("AOE", "AOE")
+
+
+def test_english_single_quotes_around_chinese_become_chinese_quotes():
+    from src.pipelines.structure.exporter import normalize_cjk_quotes
+
+    ast = pandoc.markdown_to_ast("他报告了‘勺形痕迹’，见 ‘GC’ 一书。[^1]\n\n[^1]: 称为‘安全室’。\n")
+    assert normalize_cjk_quotes(ast["blocks"]) == 2
+    markdown = pandoc.blocks_to_markdown(ast, ast["blocks"])
+    assert "“勺形痕迹”" in markdown and "‘GC’" in markdown and "“安全室”" in markdown
