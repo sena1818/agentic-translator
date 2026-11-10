@@ -133,3 +133,36 @@ def test_cleaner_strips_inline_class_suffixes():
     assert "第一部 分：狼群" in cleaned
     assert "这种批判的情动再物质化将追问重构为*勘探*" in cleaned
     assert "]{.calibre6}" not in cleaned
+
+
+def test_svg_wrapper_removal_scales_to_long_documents():
+    # pandoc 3.x 把封面 SVG 包成 `::: {}`；其后若有数十行正文，旧正则会指数级回溯
+    cleaner = EpubArtifactCleaner()
+    body = "".join(f"Paragraph {i} of the book.\n\n" for i in range(200))
+    content = (
+        "::: {}\n"
+        '<svg xmlns="http://www.w3.org/2000/svg">\n'
+        '`<image width="801" xlink:href="images/cover.jpg">`{=html}`</image>`{=html}\n'
+        "</svg>\n"
+        ":::\n\n"
+        + body
+        + "::: {}\n"
+        "Plain wrapped text.\n"
+        ":::\n"
+    )
+
+    cleaned = cleaner._remove_svg_wrapper_blocks(content)
+
+    assert "<svg" not in cleaned and "<image" not in cleaned
+    assert cleaned.startswith("\nParagraph 0 of the book.")
+    assert "::: {}\nPlain wrapped text.\n:::\n" in cleaned
+    assert "Paragraph 199 of the book." in cleaned
+
+
+def test_svg_wrapper_removal_handles_quoted_and_unclosed_blocks():
+    cleaner = EpubArtifactCleaner()
+    quoted = "> ::: {}\n> <svg>\n> </svg>\n> :::\n> After\n"
+    unclosed = "::: {}\n<svg>\nno closing fence\n"
+
+    assert cleaner._remove_svg_wrapper_blocks(quoted) == "> After\n"
+    assert cleaner._remove_svg_wrapper_blocks(unclosed) == unclosed

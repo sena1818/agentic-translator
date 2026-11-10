@@ -96,17 +96,29 @@ class EpubArtifactCleaner:
         return text
 
     def _remove_svg_wrapper_blocks(self, text: str) -> str:
-        pattern = re.compile(
-            r"(?ms)^(?P<block>(?:>\s*)?:::\s*\{\}\s*\n(?:(?:>\s*)?.*\n)*?(?:>\s*)?:::\s*\n?)"
-        )
-
-        def replace(match: re.Match[str]) -> str:
-            block = match.group("block")
-            if "<svg" in block or "<image" in block:
-                return ""
-            return block
-
-        return pattern.sub(replace, text)
+        # 逐行扫描：配对 `::: {}` 与其后最近的 `:::`，块内含 SVG/图片时整块删除
+        opener = re.compile(r"^(?:>[ \t]*)*:::[ \t]*\{\}[ \t]*$")
+        closer = re.compile(r"^(?:>[ \t]*)*:::[ \t]*$")
+        lines = text.splitlines(keepends=True)
+        kept: list[str] = []
+        index = 0
+        while index < len(lines):
+            line = lines[index]
+            if not opener.match(line.rstrip("\r\n")):
+                kept.append(line)
+                index += 1
+                continue
+            end = index + 1
+            while end < len(lines) and not closer.match(lines[end].rstrip("\r\n")):
+                end += 1
+            if end == len(lines):
+                kept.extend(lines[index:])
+                break
+            block = "".join(lines[index : end + 1])
+            if "<svg" not in block and "<image" not in block:
+                kept.append(block)
+            index = end + 1
+        return "".join(kept)
 
     def _merge_multiline_image_attributes(self, text: str) -> str:
         return re.sub(
