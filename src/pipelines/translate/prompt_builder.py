@@ -249,7 +249,8 @@ class TranslationPromptBuilder:
 }}}}
 
 要求：
-1. 普通英语词汇（如句首大写的常用词）、无需统一的条目：keep 为 false
+1. 只保留专有名词。普通英语单词即使首字母大写（如 Gate、Time、Old、Five、State、Book）、无需统一的条目：keep 为 false
+1a. 结合上下文判断词义：同一个词可能是人名而非普通词（如海盗 Captain Mission 中的 Mission 是人名「米申」，不是「使命」）
 2. 人名、地名：按通行音译只给中文，如「帕萨尼」；与【已有术语】中的全名保持一致（姓与全名用同一译法）
 3. 自造概念、组织、作品名：用「中文译名 (English)」格式
 4. 首字母缩写（如 AOE、CCRU）：通常保留原文，translation 写原文本身

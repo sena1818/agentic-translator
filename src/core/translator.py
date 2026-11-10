@@ -33,6 +33,9 @@ from .validator import QualityReport, TranslationValidator
 
 logger = logging.getLogger(__name__)
 
+# 账本候选规则或提示词变化时递增，避免断点续跑复用旧版账本
+LEDGER_VERSION = "ledger-v2"
+
 
 class TranslationEngine:
     """异步翻译引擎"""
@@ -473,7 +476,8 @@ class TranslationEngine:
 
         key = "ledger:" + hashlib.sha256(
             (
-                text
+                LEDGER_VERSION
+                + text
                 + json.dumps(self.glossary, ensure_ascii=False, sort_keys=True)
                 + str(getattr(self.config, "prompt_fingerprint", ""))
                 + str(self.config.get("multi_agent.term_ledger", {}))

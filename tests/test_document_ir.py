@@ -653,3 +653,16 @@ def test_tag_variants_written_with_chinese_brackets_are_restored():
     assert decoded.problems == []
     assert inline_codec.compare_skeletons(inlines, decoded.inlines)[0] == []
     assert "《书》" in inline_codec.plain_text(decoded.inlines)  # 真正的书名号不受影响
+
+
+def test_term_candidates_do_not_split_proper_noun_phrases():
+    from src.domain.rules.term_candidates import extract_term_candidates
+
+    text = (
+        "They met in New York twice. Later they left New York for good, and in New York again. "
+        "The Sunken Track runs west; the Sunken Track is old. Despite this, Parsani left. "
+        "Later Parsani returned, and Parsani wrote."
+    )
+    terms = {c.term for c in extract_term_candidates(text, {})}
+    assert {"New York", "Sunken Track", "Parsani"} <= terms
+    assert not terms & {"York", "New", "Track", "Sunken", "Despite", "Later Parsani"}

@@ -141,6 +141,59 @@ _STOPWORDS = {
 
 _ARTICLES = {"The", "A", "An"}
 
+# 补充：数词、月份、常见副词/介词/代词——在长篇中大量出现于句首或标题，几乎从不是专名
+_STOPWORDS |= {
+    "Four",
+    "Five",
+    "Six",
+    "Seven",
+    "Eight",
+    "Nine",
+    "Ten",
+    "Zero",
+    "Despite",
+    "Something",
+    "Nothing",
+    "Everything",
+    "Anything",
+    "Between",
+    "Within",
+    "Without",
+    "Through",
+    "Against",
+    "Among",
+    "During",
+    "Until",
+    "Upon",
+    "Under",
+    "Over",
+    "Into",
+    "Onto",
+    "Instead",
+    "Rather",
+    "Whether",
+    "Still",
+    "Again",
+    "January",
+    "February",
+    "March",
+    "April",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday",
+}
+
 
 @dataclass
 class TermCandidate:
@@ -177,21 +230,37 @@ def extract_term_candidates(text: str, glossary: dict[str, str], max_terms: int 
 
     for match in _PHRASE_RE.finditer(prose):
         phrase = match.group(0)
-        words = phrase.split()
-        while words and words[0] in _ARTICLES:  # "The Templeton Episode" → "Templeton Episode"
-            words.pop(0)  # 只剥冠词："One God Universe" 是完整专名，不能剥成 "God Universe"
-        if len(words) > 1:
-            record(" ".join(words), match.start() + phrase.find(words[0]))
-        # 单词也计数：姓氏常与全名、句首词粘连（"Hamid Parsani"、"Later Parsani's"）
-        for word_match in re.finditer(r"\S+", phrase):
-            record(word_match.group(0), match.start() + word_match.start())
+        spans = [(word.group(0), match.start() + word.start()) for word in re.finditer(r"\S+", phrase)]
+        while spans and spans[0][0] in _ARTICLES:  # "The Templeton Episode" → "Templeton Episode"
+            spans.pop(0)  # 只剥冠词："One God Universe" 是完整专名，不能剥成 "God Universe"
+        if not spans:
+            continue
+        # 按完整短语计数，不拆成单词（拆开会把 "New York" 变成 "York"、"Sunken Track" 变成 "Track"）
+        record(" ".join(word for word, _ in spans), spans[0][1])
+        # 句首的首词可能只是因位置而大写（"Later Parsani's"），另按去掉首词的形式记一次
+        if len(spans) > 1 and _SENTENCE_START.search(prose[max(0, spans[0][1] - 6) : spans[0][1]]):
+            record(" ".join(word for word, _ in spans[1:]), spans[1][1])
     for match in _ACRONYM_RE.finditer(prose):
         record(match.group(0), match.start())
 
+    eligible = {
+        term: count
+        for term, count in counts.items()
+        if count >= 2 and mid_sentence[term] >= 1 and not _covered(term, glossary_lower)
+    }
+    phrases = [term for term in eligible if " " in term]
+
+    def mostly_inside_phrase(term: str) -> bool:
+        # 单词大多作为更长专名的一部分出现时不单独收录（York ⊂ New York）；
+        # 单独出现更多的仍保留（Parsani 多于 Hamid Parsani）
+        return " " not in term and any(
+            re.search(rf"(?<![\w'’-]){re.escape(term)}(?![\w'’-])", phrase) and eligible[phrase] >= eligible[term]
+            for phrase in phrases
+        )
+
     candidates = [
         TermCandidate(term, count, contexts[term])
-        for term, count in counts.most_common()
-        if count >= 2 and mid_sentence[term] >= 1 and not _covered(term, glossary_lower)
+        for term, count in sorted(eligible.items(), key=lambda item: -item[1])
+        if not mostly_inside_phrase(term)
     ]
-    # 多词短语已覆盖其组成部分时保留两者：人名 "Hamid Parsani" 与单独出现的 "Parsani" 都需要统一
     return candidates[:max_terms]
