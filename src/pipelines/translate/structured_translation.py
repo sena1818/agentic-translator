@@ -75,6 +75,12 @@ class SegmentValidator:
         issues += [QualityIssue("format", "low", message, segment.seg_id) for message in minor]
         translated_plain = inline_codec.plain_text(decoded.inlines)
         report = self.validator.validate(segment.plain, translated_plain, self.glossary)
+        residue = _residual_english_words(translated_plain, self.glossary)
+        if residue:
+            severity = "medium" if _HAS_WORDFREQ else "low"
+            issues.append(
+                QualityIssue("untranslated", severity, "残留英文单词: " + ", ".join(residue[:6]), segment.seg_id)
+            )
         if self._left_untranslated(segment.plain, translated_plain):
             issues.append(QualityIssue("untranslated", "medium", f"该段未翻译: {segment.plain[:60]}", segment.seg_id))
         for issue in report.issues:
@@ -107,6 +113,37 @@ class SegmentValidator:
         }
         words = re.findall(r"[A-Za-z][A-Za-z'’]{2,}", source)
         return any(word[0].islower() and word.lower() not in kept for word in words)
+
+
+try:  # 可选依赖：区分常用英语词与自造词/生僻词
+    from wordfreq import zipf_frequency
+
+    _HAS_WORDFREQ = True
+except ImportError:  # pragma: no cover - 未安装时只作轻微提示
+    _HAS_WORDFREQ = False
+
+_RESIDUE_EXCLUDED = re.compile(r"[（(][^（）()]*[）)]|“[^”]*”|‘[^’]*’|\"[^\"]*\"|《[^》]*》|「[^」]*」")
+
+
+def _residual_english_words(translation: str, glossary: dict[str, str]) -> list[str]:
+    """中文为主的译文里夹着未翻译的常用英语单词（实测 DeepSeek 关闭思考时较常见："一部 dated 1987年的文本"）。
+
+    括注、引号、书名号内的英文是有意保留，不算；只认小写开头的词（专名首字母大写）；
+    有 wordfreq 时只报常用英语词（zipf ≥ 3），书中自造词（dopesh、eiaoung）与生僻词不报。
+    """
+    if len(re.findall(r"[\u4e00-\u9fff]", translation)) < 10:
+        return []
+    kept = {term.lower() for term, zh in glossary.items() if zh.split(" (", 1)[0].strip().lower() == term.lower()}
+    stripped = _RESIDUE_EXCLUDED.sub(" ", translation)
+    words = re.findall(r"(?<![A-Za-z\-\[\]])[a-z]{3,}(?![A-Za-z\-\[\]])", stripped)
+    found: list[str] = []
+    for word in words:
+        if word in kept or word in found:
+            continue
+        if _HAS_WORDFREQ and zipf_frequency(word, "en") < 3.0:
+            continue
+        found.append(word)
+    return found
 
 
 _STRUCTURAL_LABEL = re.compile(r"^(?:Part|Chapter|Section|Appendix|Book|Volume|Vol\.)[\s\-]*[\dIVXLC]+\b", re.I)

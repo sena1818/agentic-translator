@@ -26,6 +26,7 @@ dependencies = [
     "python-multipart>=0.0.6",
     "mcp>=1.2.0,<2",
     "markdown-it-py>=3.0,<5",
+    "wordfreq>=3.0",
 ]
 
 [project.optional-dependencies]

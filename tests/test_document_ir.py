@@ -782,3 +782,14 @@ def test_paragraph_notes_without_numbers_are_left_alone():
 
     ast = pandoc.markdown_to_ast("# A\n\nText^1^.\n\n## Notes\n\nSome prose about the system.\n")
     assert find_endnote_sections(ast["blocks"]) == []
+
+
+def test_residual_english_words_are_caught_but_invented_words_are_not():
+    from src.pipelines.translate.structured_translation import _HAS_WORDFREQ, _residual_english_words
+
+    text = "这部 dated 1987年的文本在三个世纪前对米申船长产生了精确而决定性的影响（paranoid hallucination）。"
+    assert _residual_english_words(text, {}) == ["dated"]  # 括注里的英文不算
+    invented = "图恩祭司反复吟唱 dopesh 与 eiaoung 这两个音节，以此开启第三道门。"
+    if _HAS_WORDFREQ:
+        assert _residual_english_words(invented, {}) == []
+    assert _residual_english_words("Short 中文 text", {}) == []
