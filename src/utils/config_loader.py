@@ -38,7 +38,11 @@ class Config:
 
         # 加载 YAML 配置
         if config_path is None:
-            config_path = self.root_dir / "config" / "config.yaml"
+            # TRANSLATOR_CONFIG 可指定配置档（如 config/gemini.yaml），便于 Web 服务与 Docker 部署切换模型
+            env_path = os.getenv("TRANSLATOR_CONFIG")
+            config_path = Path(env_path) if env_path else self.root_dir / "config" / "config.yaml"
+            if not config_path.is_absolute():
+                config_path = self.root_dir / config_path
         self.config_path = Path(config_path)
 
         if yaml is None:

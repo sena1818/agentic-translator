@@ -66,3 +66,15 @@ def test_import_glossary_uses_form_name(glossary_client):
     assert response.status_code == 200
     assert response.json()["id"] == "custom_name"
     assert (glossary_dir / "custom_name.json").exists()
+
+
+def test_glossary_names_with_spaces_punctuation_and_chinese_are_accepted(tmp_path):
+    import asyncio
+
+    from src.infrastructure.persistence.glossary_repository import GlossaryService
+
+    service = GlossaryService()
+    service.glossary_dir = tmp_path
+    created = asyncio.run(service.create_glossary("Cyclonopedia & Ccru 术语表", {"Hyperstition": "超虚构"}))
+    assert created["id"] == "cyclonopedia_ccru_术语表"
+    assert asyncio.run(service.get_glossary(created["id"]))["terms"] == {"Hyperstition": "超虚构"}

@@ -6,6 +6,7 @@ import asyncio
 import fcntl
 import json
 import os
+import re
 import tempfile
 from contextlib import contextmanager
 from datetime import datetime
@@ -88,7 +89,12 @@ class GlossaryService:
 
     async def create_glossary(self, name: str, terms: dict[str, str]) -> dict:
         """创建术语表"""
-        glossary_id = name.lower().replace(" ", "_")
+        # 名称即文件标识：中文可用；路径分隔符与 ".." 明确拒绝，其余标点、空格替换为下划线
+        if re.search(r"[/\\]|\.\.", name):
+            raise ValueError("术语表名称不能包含 /、\\ 或 ..")
+        glossary_id = re.sub(r"[^\w-]+", "_", name.strip().lower(), flags=re.UNICODE).strip("_")
+        if not glossary_id:
+            raise ValueError("术语表名称至少需要包含一个字母、数字或汉字")
         file_path = self._path(glossary_id)
 
         self._validate_terms(terms)

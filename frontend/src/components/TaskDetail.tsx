@@ -20,6 +20,7 @@ import {
   statusLabels,
   chipClass,
   stageLabels,
+  toCommonMark,
 } from "../services/taskPresentation";
 
 const running = (status: string) => ["pending", "processing"].includes(status);
@@ -39,7 +40,7 @@ function Markdown({ text, id }: { text: string; id: string }) {
           ),
         }}
       >
-        {text}
+        {toCommonMark(text)}
       </ReactMarkdown>
     </div>
   );
