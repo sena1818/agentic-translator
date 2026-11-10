@@ -155,6 +155,25 @@ def _append_text(nodes: list[dict], text: str) -> None:
             nodes.append({"t": "Str", "c": piece})
 
 
+_VARIANT_TAG_RE = re.compile(r"[《<＜〈]\s*(/?)\s*([a-z]+\d+)\s*(/?)\s*[》>＞〉]")
+
+
+def normalize_tag_variants(tagged: str, tags: dict[str, dict]) -> str:
+    """把模型写走样的标签还原成标准写法，只认源段里真实存在的标签名。
+
+    实测 DeepSeek 关闭思考时偶尔把 `<i1>` 写成中文书名号 `《i1》`，或写成全角 `＜i1＞`。
+    这类变体不还原会被当成普通文字，导致格式丢失、甚至触发结构修复。
+    """
+
+    def replace(match: re.Match[str]) -> str:
+        closing, name, self_closing = match.groups()
+        if name not in tags:
+            return match.group(0)
+        return f"<{closing}{name}{self_closing}>"
+
+    return _VARIANT_TAG_RE.sub(replace, tagged)
+
+
 def decode(tagged: str, source_inlines: list[dict]) -> DecodeResult:
     """把带标签译文解码回行内节点。
 
@@ -162,6 +181,7 @@ def decode(tagged: str, source_inlines: list[dict]) -> DecodeResult:
     未知标签丢弃、多余闭合标签忽略、未闭合标签在末尾补齐，均记入 problems。
     """
     tags = encode(source_inlines).tags
+    tagged = normalize_tag_variants(tagged, tags)
     problems: list[str] = []
     root: list[dict] = []
     stack: list[tuple[str, list[dict]]] = [("", root)]

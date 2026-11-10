@@ -82,6 +82,10 @@ class ChatModelFactory:
         reasoning_effort = self.config.get("api.reasoning_effort")
         if reasoning_effort:
             options["reasoning_effort"] = reasoning_effort
+        # 流式接收：长输出时持续有数据回传，避免中间网关因"首字节前空闲过久"断开（实测云端约 30 秒）
+        if self.config.get("api.streaming"):
+            options["streaming"] = True
+            options["stream_usage"] = True
         return _ChatOpenAI(**options)
 
     def create_translator(self):

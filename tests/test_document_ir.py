@@ -640,3 +640,16 @@ def test_self_gloss_of_untranslated_names_is_removed():
     ast = pandoc.markdown_to_ast("传递给Ccru (Ccru) 的信息，AOE（AOE）也是。\n")
     dedupe_glosses(ast["blocks"])
     assert pandoc.blocks_to_markdown(ast, ast["blocks"]) == "传递给Ccru 的信息，AOE也是。"
+
+
+def test_tag_variants_written_with_chinese_brackets_are_restored():
+    inlines = _para_inlines("The *CCRU* defined **hyperstition** as $x$ and 《Book》.")
+    encoded = inline_codec.encode(inlines).text
+    i_tag = re.search(r"<(i\d+)>", encoded).group(1)
+    b_tag = re.search(r"<(b\d+)>", encoded).group(1)
+    m_tag = re.search(r"<(m\d+)/>", encoded).group(1)
+    garbled = f"《{i_tag}》CCRU《/{i_tag}》将＜{b_tag}＞超虚构＜/{b_tag}＞定义为《{m_tag}/》，见《书》。"
+    decoded = inline_codec.decode(garbled, inlines)
+    assert decoded.problems == []
+    assert inline_codec.compare_skeletons(inlines, decoded.inlines)[0] == []
+    assert "《书》" in inline_codec.plain_text(decoded.inlines)  # 真正的书名号不受影响

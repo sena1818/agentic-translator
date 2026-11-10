@@ -1,6 +1,6 @@
 """用真实模型跑结构化翻译，统计一次通过率 / 修复 / 回退 / token。
 
-用法: python scripts/eval_structured.py <输出目录> <源文件.md>...（读取 config/gemini.yaml）
+用法: python scripts/eval_structured.py <输出目录> <源文件.md>...（读取 $EVAL_CONFIG，默认 config/gemini.yaml）
 """
 
 import asyncio
@@ -12,7 +12,8 @@ from collections import defaultdict
 from dataclasses import asdict
 from pathlib import Path
 
-os.environ.setdefault("GEMINI_API_KEY", "proxy-injected")  # 真实密钥由网络代理注入
+for _name in ("GEMINI_API_KEY", "TOKENRHYTHM_API_KEY", "ITERACOMPUTE_API_KEY"):
+    os.environ.setdefault(_name, "proxy-injected")  # 云端会话的真实密钥由网络代理注入
 sys.path.insert(0, os.getcwd())
 
 from langchain_core.callbacks import get_usage_metadata_callback  # noqa: E402
@@ -47,7 +48,7 @@ CURRENT = None
 
 async def main():
     global CURRENT
-    config = get_config(Path("config/gemini.yaml"))
+    config = get_config(Path(os.getenv("EVAL_CONFIG", "config/gemini.yaml")))
     glossary = json.loads(Path("data/glossaries/CPglossary.json").read_text())
     summary = []
     for source in SOURCES:
