@@ -40,6 +40,9 @@ data/temp/**
 output_final/**
 BookTrans/**
 marker_output/**
+# 翻译时自动生成的术语账本（按书保存的用户数据）与术语表写锁
+data/glossaries/*_术语账本.json
+data/glossaries/.*.lock
 
 # 保留目录结构
 !input/.gitkeep
