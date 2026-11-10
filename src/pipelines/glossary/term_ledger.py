@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 
 from ...domain.rules.term_candidates import extract_term_candidates
+from ...infrastructure.llm.retry import ainvoke_with_retries
 from ..translate.langchain_compat import StrOutputParser
 from ..translate.prompt_builder import TranslationPromptBuilder
 from .glossary_extractor import GlossaryExtractor
@@ -41,14 +42,16 @@ class TermLedgerBuilder:
         }
         prompt = self.prompt_builder.build_term_ledger_prompt()
         try:
-            raw = await (prompt | self.llm | StrOutputParser()).ainvoke(
+            raw, _ = await ainvoke_with_retries(
+                prompt | self.llm | StrOutputParser(),
                 {
                     "summary": summary or "（无）",
                     "existing_terms": "\n".join(f"- {en}: {zh}" for en, zh in related.items()) or "（无）",
                     "candidates": "\n".join(
                         f"- {candidate.term}（{candidate.count} 次）：…{candidate.context}…" for candidate in candidates
                     ),
-                }
+                },
+                self.config.get("api.translator.max_retries", 3),
             )
         except Exception as exc:
             logger.warning("术语账本生成失败，按原术语表继续翻译: %s", exc)

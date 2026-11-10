@@ -21,7 +21,7 @@ from ...domain.rules.chunk_planning import TextChunk
 from ...domain.rules.glossary_selection import respect_case as _respect_case
 from ...domain.rules.glossary_selection import select_relevant_glossary
 from ...infrastructure.document import pandoc
-from ...infrastructure.llm.rate_limits import QuotaExhaustedError, classify
+from ...infrastructure.llm.retry import ainvoke_with_retries
 from .langchain_compat import StrOutputParser
 from .prompt_builder import TranslationPromptBuilder
 
@@ -277,28 +277,16 @@ class StructuredChunkTranslator:
         }
 
     async def _invoke(self, chain, payload) -> tuple[str, int, float]:
-        max_retries = self.config.get("api.translator.max_retries", 3)
-        for retry in range(max_retries + 1):
-            try:
-                await self.rate_limiter.acquire()
-                start = time.monotonic()
-                raw = await chain.ainvoke(payload)
-                return raw, retry, time.monotonic() - start
-            except Exception as exc:
-                if isinstance(exc, QuotaExhaustedError):
-                    raise
-                status = getattr(exc, "status_code", None)
-                if status is not None and 400 <= status < 500 and status not in {408, 409, 429}:
-                    raise
-                kind, wait = classify(exc)
-                if kind == "rate" and retry < max_retries:
-                    # 服务端给出的等待时间比固定指数退避更可靠；没有提示时按分钟级窗口退避（上限 2 分钟）
-                    await asyncio.sleep(min((wait + 1) if wait else 15 * (retry + 1), 120))
-                    continue
-                if retry >= max_retries:
-                    raise
-                await asyncio.sleep(2**retry)
-        raise RuntimeError("unreachable")
+        started = {"at": time.monotonic()}
+
+        async def before_attempt():
+            await self.rate_limiter.acquire()
+            started["at"] = time.monotonic()
+
+        raw, retry = await ainvoke_with_retries(
+            chain, payload, self.config.get("api.translator.max_retries", 3), before_attempt
+        )
+        return raw, retry, time.monotonic() - started["at"]
 
 
 def _score(issues: list[QualityIssue]) -> int:

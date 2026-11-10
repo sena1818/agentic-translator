@@ -11,6 +11,7 @@ import re
 from ...core.chunk_planner import TextChunk
 from ...domain.models.translation_models import DocumentProfile
 from ...domain.rules.document_sampling import sample_document
+from ...infrastructure.llm.retry import ainvoke_with_retries
 from .langchain_compat import StrOutputParser
 from .prompt_builder import TranslationPromptBuilder
 
@@ -42,12 +43,14 @@ class DocumentAnalyzer:
         chain = analyst_prompt | self.llm_analyst | StrOutputParser()
 
         try:
-            raw = await chain.ainvoke(
+            raw, _ = await ainvoke_with_retries(
+                chain,
                 {
                     "max_term_hints": getattr(self.config, "analyst_max_term_hints", 12),
                     "sections": "\n".join(f"- {item}" for item in unique_sections) or "- Document Root",
                     "excerpt": excerpt,
-                }
+                },
+                self.config.get("api.translator.max_retries", 3),
             )
             return self.parse(raw, self.config)
         except Exception as exc:
