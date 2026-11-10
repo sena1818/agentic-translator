@@ -167,6 +167,7 @@ class Unit:
     path: tuple[tuple[int, int], ...]  # ((child_list_index, block_index), ...)，首项 child_list_index 恒为 -1
     block: dict
     section_path: list[str]
+    verbatim: bool = False  # 参考文献等保留原文的单元：不送模型、原样输出
 
 
 @dataclass
@@ -209,10 +210,21 @@ def _unit_cost(block: dict) -> int:
     )
 
 
-def plan_units(ast: dict, max_unit_cost: int) -> list[Unit]:
-    """把 AST 切成单元；超长容器（Div/引用/列表）下钻为子块。"""
+VERBATIM_SECTION_RE = re.compile(
+    r"\b(?:works\s+cited|bibliography|references|further\s+reading|select\s+bibliography)\b|参考文献|引用文献",
+    re.IGNORECASE,
+)
+
+
+def plan_units(ast: dict, max_unit_cost: int, keep_bibliography: bool = False) -> list[Unit]:
+    """把 AST 切成单元；超长容器（Div/引用/列表）下钻为子块。
+
+    keep_bibliography：参考文献类标题（Works Cited、Bibliography……）之下、直到下一个同级或更高级
+    标题为止的内容保留原文——书名、出版社、地名混译只会让条目难以检索。标题本身照常翻译。
+    """
     units: list[Unit] = []
     heading_stack: list[tuple[int, str]] = []
+    verbatim_level: list[int | None] = [None]
 
     def visit(blocks: list[dict], prefix: tuple, list_index: int):
         for block_index, block in enumerate(blocks):
@@ -222,11 +234,26 @@ def plan_units(ast: dict, max_unit_cost: int) -> list[Unit]:
                 for child_index, child_blocks in enumerate(children):
                     visit(child_blocks, path, child_index)
                 continue
+            verbatim = False
             if block["t"] == "Header":
                 level = block["c"][0]
+                title = section_title_of(block) or ""
                 heading_stack[:] = [item for item in heading_stack if item[0] < level]
-                heading_stack.append((level, section_title_of(block) or ""))
-            units.append(Unit(path=path, block=block, section_path=[title for _, title in heading_stack]))
+                heading_stack.append((level, title))
+                if verbatim_level[0] is not None and level <= verbatim_level[0]:
+                    verbatim_level[0] = None
+                if keep_bibliography and VERBATIM_SECTION_RE.search(title):
+                    verbatim_level[0] = level
+            else:
+                verbatim = verbatim_level[0] is not None
+            units.append(
+                Unit(
+                    path=path,
+                    block=block,
+                    section_path=[title for _, title in heading_stack],
+                    verbatim=verbatim,
+                )
+            )
 
     visit(ast["blocks"], (), -1)
     return units
@@ -238,7 +265,7 @@ def plan_chunks(ir: DocumentIR, chunk_size: int, min_chunk_size: int) -> list[St
     current: list[Unit] = []
     current_cost = 0
     for unit in ir.units:
-        cost = _unit_cost(unit.block)
+        cost = 0 if unit.verbatim else _unit_cost(unit.block)
         is_major_heading = unit.block["t"] == "Header" and unit.block["c"][0] <= 2
         if current and (
             (current_cost + cost > chunk_size and current_cost > 0)
@@ -256,8 +283,9 @@ def plan_chunks(ir: DocumentIR, chunk_size: int, min_chunk_size: int) -> list[St
     for index, units in enumerate(groups):
         segments: list[Segment] = []
         candidates = list(_candidates_with_note_flag([unit.block for unit in units]))
+        verbatim_flags = [unit.verbatim for unit in units for _ in iter_candidates([unit.block])]
         for candidate_index, (inlines, in_note) in enumerate(candidates):
-            if not is_translatable(inlines):
+            if verbatim_flags[candidate_index] or not is_translatable(inlines):
                 continue
             segments.append(
                 Segment(

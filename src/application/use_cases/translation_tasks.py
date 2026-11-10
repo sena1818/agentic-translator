@@ -23,6 +23,7 @@ from ...infrastructure.persistence.task_repository import TaskRepository
 from ...pipelines.postprocess.result_postprocess_pipeline import ResultPostprocessPipeline
 from ...utils.config_loader import get_config
 from .run_translation_pipeline import RunTranslationPipeline
+from .term_ledger_store import load_ledger, merged_glossary, save_ledger
 
 logger = logging.getLogger(__name__)
 
@@ -154,7 +155,10 @@ class TranslationService:
             text = await asyncio.to_thread(Path(markdown).read_text, encoding="utf-8-sig")
             if not text.strip():
                 raise ValueError("转换后的文档为空")
-            use_case = RunTranslationPipeline(task.glossary_snapshot, engine_cls=TranslationEngine, config=config)
+            # 已保存的术语账本（可能经人工审阅）补充到用户术语表之后，保证同一本书多次运行译名一致
+            saved_ledger = await load_ledger(self.glossary_service, task.filename)
+            glossary = merged_glossary(task.glossary_snapshot or {}, saved_ledger)
+            use_case = RunTranslationPipeline(glossary, engine_cls=TranslationEngine, config=config)
             chunks = use_case.plan_chunks(text)
             old = self.files.records(task)
             if hasattr(use_case.engine, "seed_results"):
@@ -187,6 +191,11 @@ class TranslationService:
             failures = [r for r in results if not r.success]
             warnings = [r for r in results if r.success and r.quality_report.get("passed") is False]
             task.quality_summary = self._summary(results, directory, task_id)
+            new_terms = getattr(use_case.engine, "term_ledger", None) or {}
+            if new_terms or saved_ledger:
+                _, added = await save_ledger(self.glossary_service, task.filename, new_terms)
+                task.quality_summary["ledger_terms"] = len(saved_ledger) + added
+                task.quality_summary["ledger_terms_added"] = added
             task.status = (
                 TaskStatus.FAILED
                 if len(failures) == len(results) and failures

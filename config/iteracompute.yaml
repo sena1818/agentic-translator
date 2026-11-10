@@ -67,6 +67,8 @@ server:
 # 需要安装 pandoc；不可用时自动回落到传统 Markdown 分块。
 document_ir:
   enabled: true
+  # 参考文献类章节（Works Cited / Bibliography / 参考文献……）保留原文，标题照常翻译
+  keep_bibliography: true
 
 # 翻译质量控制
 quality:

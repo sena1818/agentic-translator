@@ -32,11 +32,13 @@ class StructuredDocumentPlanner:
         target_chunk_size: int | None = None,
         min_chunk_size: int | None = None,
         context_window: int = 1400,
+        keep_bibliography: bool = True,
     ):
         self.chunk_size = chunk_size
         self.target_chunk_size = min(target_chunk_size or int(chunk_size * 0.9), chunk_size)
         self.min_chunk_size = min_chunk_size or max(600, int(self.target_chunk_size * 0.4))
         self.context_window = context_window
+        self.keep_bibliography = keep_bibliography
 
     @classmethod
     def from_config(cls, config) -> StructuredDocumentPlanner:
@@ -45,11 +47,14 @@ class StructuredDocumentPlanner:
             target_chunk_size=config.target_chunk_size,
             min_chunk_size=config.min_chunk_size,
             context_window=config.context_window,
+            keep_bibliography=bool(config.get("document_ir.keep_bibliography", True)),
         )
 
     def plan(self, text: str) -> StructuredPlan:
         ast = pandoc.markdown_to_ast(text)
-        ir = document_ir.DocumentIR(ast=ast, units=document_ir.plan_units(ast, self.chunk_size))
+        ir = document_ir.DocumentIR(
+            ast=ast, units=document_ir.plan_units(ast, self.chunk_size, keep_bibliography=self.keep_bibliography)
+        )
         structured = document_ir.plan_chunks(ir, self.target_chunk_size, self.min_chunk_size)
         for item in structured:
             item.pandoc_api = ast["pandoc-api-version"]

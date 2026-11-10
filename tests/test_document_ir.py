@@ -701,3 +701,54 @@ def test_english_single_quotes_around_chinese_become_chinese_quotes():
     assert normalize_cjk_quotes(ast["blocks"]) == 3
     markdown = pandoc.blocks_to_markdown(ast, ast["blocks"])
     assert "“勺形痕迹”" in markdown and "‘GC’" in markdown and "“安全室”" in markdown
+
+
+# --------------------------------------------------------------------------- #
+# 术语账本持久化（保存为可在后台审阅的术语表）
+# --------------------------------------------------------------------------- #
+
+
+def test_ledger_is_saved_as_reviewable_glossary_and_keeps_human_edits(tmp_path):
+    from src.application.use_cases.term_ledger_store import (
+        ledger_glossary_id,
+        load_ledger,
+        merged_glossary,
+        save_ledger,
+    )
+    from src.infrastructure.persistence.glossary_repository import GlossaryService
+
+    service = GlossaryService()
+    service.glossary_dir = tmp_path
+    book = "Ccru - Writings.epub"
+    assert ledger_glossary_id(book) == "ccru_writings_术语账本"
+
+    glossary_id, added = asyncio.run(save_ledger(service, book, {"Gates": "盖茨", "Kaye": "凯"}))
+    assert added == 2 and asyncio.run(service.get_glossary(glossary_id))["terms"]["Gates"] == "盖茨"
+
+    # 人工在后台把 Gates 改成"门"；下一次运行又识别出 Gates 与新词 Lurgo
+    asyncio.run(service.update_glossary(glossary_id, {"Gates": "门", "Kaye": "凯"}))
+    _, added = asyncio.run(save_ledger(service, book, {"Gates": "盖茨", "Lurgo": "卢尔戈"}))
+    terms = asyncio.run(load_ledger(service, book))
+    assert added == 1 and terms == {"Gates": "门", "Kaye": "凯", "Lurgo": "卢尔戈"}
+
+    # 用户所选术语表优先于账本
+    merged = merged_glossary({"kaye": "凯伊"}, terms)
+    assert merged["kaye"] == "凯伊" and "Kaye" not in merged and merged["Gates"] == "门"
+
+
+def test_bibliography_sections_are_kept_verbatim():
+    from src.pipelines.structure.planner import StructuredDocumentPlanner
+
+    text = (
+        "# Essay\n\nBurroughs wrote about time.\n\n"
+        "## Works Cited\n\nConrad, Joseph, *Heart of Darkness*, London: Penguin, 1984\n\n"
+        "Eliot, T.S., *Poems*, London: Faber, 1985\n\n"
+        "## Afterword\n\nThe end of the essay.\n"
+    )
+    plan = StructuredDocumentPlanner(keep_bibliography=True).plan(text)
+    plains = [seg.plain for chunk in plan.chunks for seg in chunk.structured.segments]
+    assert "Works Cited" in plains  # 标题照常翻译
+    assert not any("Conrad" in plain or "Eliot" in plain for plain in plains)  # 条目不送模型
+    assert "The end of the essay." in plains  # 下一个同级标题后恢复翻译
+    off = StructuredDocumentPlanner(keep_bibliography=False).plan(text)
+    assert any("Conrad" in seg.plain for chunk in off.chunks for seg in chunk.structured.segments)

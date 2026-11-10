@@ -212,6 +212,15 @@ class TranslationPipeline:
 
         # 步骤 4: 初始化翻译引擎
         logger.info("⚙️ 初始化翻译引擎...")
+        # 已保存的术语账本（data/glossaries/<书名>_术语账本.json，可在 Web 术语表页审阅）补充到术语表之后
+        from src.application.use_cases.term_ledger_store import load_ledger, merged_glossary, save_ledger
+        from src.infrastructure.persistence.glossary_repository import GlossaryService
+
+        glossary_service = GlossaryService()
+        saved_ledger = await load_ledger(glossary_service, input_file.name)
+        if saved_ledger:
+            logger.info(f"📒 读取已保存的术语账本: {len(saved_ledger)} 条")
+        glossary = merged_glossary(glossary, saved_ledger)
         translation_use_case = RunTranslationPipeline(glossary=glossary)
 
         # 步骤 5: 文本分块
@@ -270,6 +279,10 @@ class TranslationPipeline:
             prepared_chunks=chunks,
         )
         results = pipeline_output.results
+        new_terms = getattr(pipeline_output.engine, "term_ledger", None) or {}
+        if new_terms:
+            ledger_id, added = await save_ledger(glossary_service, input_file.name, new_terms)
+            logger.info(f"📒 术语账本新增 {added} 条，已保存为术语表 {ledger_id}（可在 Web 术语表页审阅修改）")
         from dataclasses import asdict
 
         from src.core.output_manager import OutputManager
