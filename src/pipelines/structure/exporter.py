@@ -330,11 +330,21 @@ def normalize_cjk_quotes(blocks: list[dict]) -> int:
         return new
 
     def visit_inlines(inlines: list[dict]):
+        nonlocal changed
         inline_codec.rewrite_text_runs(inlines, rewrite)
         for node in inlines:
             if node["t"] == "Note":
                 visit_blocks(node["c"])
-            elif node["t"] in inline_codec.PAIR_TAGS:
+                continue
+            # pandoc 把成对的 ‘…’ 解析为 Quoted(SingleQuote) 节点，而不是文字
+            if (
+                node["t"] == "Quoted"
+                and node["c"][0]["t"] == "SingleQuote"
+                and re.search(r"[\u3400-\u9fff]", inline_codec.plain_text(node["c"][1]))
+            ):
+                node["c"][0] = {"t": "DoubleQuote"}
+                changed += 1
+            if node["t"] in inline_codec.PAIR_TAGS:
                 visit_inlines(inline_codec.pair_children(node))
 
     def visit_blocks(items: list[dict]):
