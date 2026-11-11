@@ -124,3 +124,35 @@ async def get_chunks(task_id: str, skip: int = Query(0, ge=0), limit: int = Quer
 @router.put("/tasks/{task_id}/chunks/{index}")
 async def edit_chunk(task_id: str, index: int, payload: EditRequest):
     return await service.edit_chunk(task_id, index, payload.translation, payload.revision)
+
+
+@router.get("/tasks/{task_id}/index/search")
+async def search_book(
+    task_id: str,
+    q: str = Query(..., min_length=1),
+    field: str = Query("any", pattern="^(any|source|translation)$"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+):
+    """全书关键词检索：原文、译文或两者里包含全部关键词的段。"""
+    return await service.search_book(task_id, q, field, skip, limit)
+
+
+@router.get("/tasks/{task_id}/index/occurrences")
+async def term_occurrences(
+    task_id: str,
+    term: str = Query(..., min_length=1),
+    case_sensitive: bool = False,
+    variants: bool = True,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+):
+    """某词在全书的全部出现段（含前后文与该段译文），按段分页。"""
+    return await service.term_occurrences(task_id, term, case_sensitive, variants, skip, limit)
+
+
+@router.get("/tasks/{task_id}/index/renderings")
+async def term_renderings(task_id: str, term: str = Query(..., min_length=1), case_sensitive: bool = False, variants: bool = True):
+    """某词在各段对应的中文译法及次数（启发式统计，附证据段号）。"""
+    return await service.term_renderings(task_id, term, case_sensitive, variants)
+
