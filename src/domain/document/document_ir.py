@@ -319,6 +319,9 @@ def _candidates_with_note_flag(blocks: list[dict]) -> Iterator[tuple[list[dict],
                 note_ids.add(id(inner))
 
 
+candidates_with_note_flag = _candidates_with_note_flag
+
+
 def chunk_fingerprint(chunk: StructuredChunk) -> str:
     return hashlib.sha1(chunk.tagged_payload().encode("utf-8")).hexdigest()[:12]
 

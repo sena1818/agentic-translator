@@ -8,6 +8,7 @@ import json
 import logging
 import shutil
 import uuid
+from dataclasses import asdict
 from pathlib import Path
 
 from ...converters.document_converter import DocumentConverter
@@ -22,6 +23,7 @@ from ...infrastructure.persistence.glossary_repository import GlossaryService
 from ...infrastructure.persistence.task_repository import TaskRepository
 from ...pipelines.postprocess.result_postprocess_pipeline import ResultPostprocessPipeline
 from ...utils.config_loader import get_config
+from .book_index import BookIndexService
 from .run_translation_pipeline import RunTranslationPipeline
 from .term_ledger_store import load_ledger, merged_glossary, save_ledger
 
@@ -38,6 +40,7 @@ class TranslationService:
         self.files = files or TaskFiles()
         self.config = config or get_config()
         self.postprocess_pipeline = ResultPostprocessPipeline()
+        self.book_index = BookIndexService(self.files.root)
 
     @property
     def db(self):
@@ -160,6 +163,10 @@ class TranslationService:
             glossary = merged_glossary(task.glossary_snapshot or {}, saved_ledger)
             use_case = RunTranslationPipeline(glossary, engine_cls=TranslationEngine, config=config)
             chunks = use_case.plan_chunks(text)
+            structured_chunks = _structured_chunks(chunks)
+            if structured_chunks:
+                # 翻译前就建好只含原文的全书索引，之后每译完一块写入该块译文
+                await self._update_index(task_id, lambda: self.book_index.build_source(task_id, structured_chunks))
             old = self.files.records(task)
             if hasattr(use_case.engine, "seed_results"):
                 use_case.engine.seed_results = {
@@ -181,6 +188,11 @@ class TranslationService:
                         task.progress.percentage = 100 * task.progress.current / max(1, task.progress.total)
                         task.progress.speed = task.progress.current * 60 / max(0.001, task.progress.elapsed)
                     await self._stage(task, "translating")
+                if structured_chunks and event.get("status") in {"completed", "failed"} and "chunk_index" in event:
+                    translations = {event["chunk_index"]: event.get("translation") if event["status"] == "completed" else None}
+                    await self._update_index(
+                        task_id, lambda: self.book_index.update_chunks(task_id, structured_chunks, translations)
+                    )
 
             output = await use_case.execute(text, stream_path, task.bilingual, progress, chunks)
             results = output.results
@@ -188,6 +200,12 @@ class TranslationService:
             # 源文随产物保存：结构化导出与人工审校后的重渲染都从它重新规划
             await asyncio.to_thread((directory / SOURCE_NAME).write_text, text, encoding="utf-8")
             await asyncio.to_thread(self._render, task, directory, results, [Path(markdown).parent, temp_dir])
+            if structured_chunks:
+                # 以导出后的最终记录为准（含缓存命中、未触发进度事件的块，图片路径也已改写）
+                records = [asdict(result) for result in results]
+                await self._update_index(
+                    task_id, lambda: self.book_index.update_records(task_id, structured_chunks, records)
+                )
             failures = [r for r in results if not r.success]
             warnings = [r for r in results if r.success and r.quality_report.get("passed") is False]
             task.quality_summary = self._summary(results, directory, task_id)
@@ -221,6 +239,23 @@ class TranslationService:
             task.stage = "failed"
             task.error = str(exc)
             await self.tasks.update(task)
+
+    async def _update_index(self, task_id, update):
+        """索引只是查询辅助：写入失败只记日志，不影响翻译与导出。"""
+        try:
+            await asyncio.to_thread(update)
+        except Exception:
+            logger.warning("全书索引更新失败（不影响翻译结果）: %s", task_id, exc_info=True)
+
+    def _plan_from_artifacts(self, task, directory):
+        from ...infrastructure.document.pandoc import pandoc_available
+        from ...pipelines.structure.planner import StructuredDocumentPlanner
+
+        config = self._task_config(task)
+        source = Path(directory) / SOURCE_NAME
+        if not (config.get("document_ir.enabled", False) and pandoc_available() and source.exists()):
+            return None
+        return StructuredDocumentPlanner.from_config(config).plan(source.read_text(encoding="utf-8")).structured_chunks
 
     @staticmethod
     def _summary(results, directory=None, task_id=None):
@@ -385,7 +420,53 @@ class TranslationService:
         summary = self._summary(results, new_dir, task_id)
         if not await self.db.replace_artifacts(task_id, task.artifact_dir, str(new_dir), summary):
             raise ValueError("结果已更新，请刷新后再编辑")
+        edited = next(result for result in results if result.chunk_index == index)
+
+        def reindex():
+            chunks = self._plan_from_artifacts(task, new_dir)
+            if chunks:
+                self.book_index.update_chunks(task_id, chunks, {index: edited.translation})
+
+        await self._update_index(task_id, reindex)
         return await self.get_chunks(task_id)
+
+    # ------------------------------------------------------------------ #
+    # 全书索引查询
+    # ------------------------------------------------------------------ #
+
+    async def _indexed_task(self, task_id):
+        task = await self.tasks.get(task_id)
+        if task is None:
+            raise ValueError("任务不存在")
+        return task
+
+    async def search_book(self, task_id, query, field="any", skip=0, limit=20):
+        await self._indexed_task(task_id)
+        return await asyncio.to_thread(self.book_index.search, task_id, query, field, skip, limit)
+
+    async def term_occurrences(self, task_id, term, case_sensitive=False, variants=True, skip=0, limit=20):
+        await self._indexed_task(task_id)
+        return await asyncio.to_thread(
+            self.book_index.occurrences,
+            task_id,
+            term,
+            case_sensitive=case_sensitive,
+            variants=variants,
+            offset=skip,
+            limit=limit,
+        )
+
+    async def term_renderings(self, task_id, term, case_sensitive=False, variants=True):
+        task = await self._indexed_task(task_id)
+        # 术语表里的译名作为已知译法优先比对；其余译法从译文中统计
+        known = [
+            zh.split(" (", 1)[0].strip()
+            for en, zh in (task.glossary_snapshot or {}).items()
+            if en.casefold() == term.strip().casefold()
+        ]
+        return await asyncio.to_thread(
+            self.book_index.renderings, task_id, term, known, case_sensitive=case_sensitive, variants=variants
+        )
 
     async def export_result(self, task_id, variant="mono"):
         task = await self.tasks.get(task_id)
@@ -448,4 +529,11 @@ class TranslationService:
             if directory.exists():
                 shutil.rmtree(directory)
         (self.files.root / "results" / "downloads" / f"{task_id}.assets.zip").unlink(missing_ok=True)
+        self.book_index.delete(task_id)
         return True
+
+
+def _structured_chunks(chunks):
+    """结构化规划的块载荷；回落到传统分块时返回 None（没有段位置，不建索引）。"""
+    items = [getattr(chunk, "structured", None) for chunk in chunks]
+    return items if items and all(item is not None for item in items) else None
