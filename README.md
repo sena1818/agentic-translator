@@ -10,6 +10,8 @@ Not tied to any single domain: bring your own glossary and translate professiona
 
 **English** | [简体中文](README.zh-CN.md)
 
+**[Live demo →](https://sena1818.github.io/agentic-translator/)** a linked bilingual reader built from a public-domain text (Thoreau's *Walden*, excerpt), plus [EPUB](https://sena1818.github.io/agentic-translator/walden.epub) and [bilingual EPUB](https://sena1818.github.io/agentic-translator/walden.bilingual.epub) downloads.
+
 ![Web UI](docs/images/review-workspace.jpg)
 
 ## Why agentic?
@@ -33,7 +35,8 @@ Every claim about whether this architecture helps is backed by a reproducible [e
 - 🛡️ **Selective repair** — QA flags high-risk chunks; only those get a one-shot Reviewer retranslation
 - 💾 **Chunk-level SQLite cache** — resumable by design; keys include model, glossary, prompt version, and document-profile fingerprint
 - ⚠️ **Failure isolation** — a failed chunk becomes a placeholder, never a stalled document
-- 🌗 **Bilingual export** — paragraph-aligned source/translation Markdown plus the linked reader above
+- 🌗 **Bilingual export** — paragraph-aligned source/translation Markdown plus the linked reader above; the reader opens inside the web app at a bookmarkable address, and the offline file stores each image once for both panes
+- 📖 **EPUB export** — translation-only and bilingual EPUB3 with table of contents, images and linked footnotes; images that cannot be found are listed in the export stats and shown on the task page
 - 🌐 **Web UI** — React + FastAPI, with task search, cancellation, recovery, per-chunk retranslation, and manual review
 - 🔌 **MCP server** — stdio transport exposing translation, task management, and glossary tools to Claude Desktop and other MCP clients
 - 🔭 **Observability** — opt-in Langfuse tracing of the full agent call chain and per-chunk token usage, degrading to no-op when unconfigured

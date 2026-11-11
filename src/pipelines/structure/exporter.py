@@ -8,7 +8,6 @@
 from __future__ import annotations
 
 import copy
-import html
 import json
 import logging
 import re
@@ -18,6 +17,7 @@ from pathlib import Path
 
 from ...domain.document import document_ir, inline_codec
 from ...infrastructure.document import pandoc
+from .delivery import ImageInliner, ImageLocator, resolver_from_locator, write_epub
 from .endnotes import find_endnote_sections, link_endnotes
 from .html_template import render_reader_html
 from .planner import StructuredDocumentPlanner, StructuredPlan
@@ -142,6 +142,10 @@ class StructuredExporter:
     @staticmethod
     def bilingual_markdown(document: AssembledDocument) -> str:
         """段级（单元级）对照：每个含文字的单元先引用原文，紧跟译文。"""
+        return pandoc.blocks_to_markdown(document.translated_ast, StructuredExporter.bilingual_blocks(document)) + "\n"
+
+    @staticmethod
+    def bilingual_blocks(document: AssembledDocument) -> list[dict]:
         blocks: list[dict] = []
         for item in document.chunks:
             if item.status == "aligned":
@@ -154,7 +158,7 @@ class StructuredExporter:
                 blocks.append({"t": "BlockQuote", "c": [_quote_form(unit.block) for unit in item.structured.units]})
                 blocks.extend(item.translated_blocks)
                 blocks.append({"t": "HorizontalRule"})
-        return pandoc.blocks_to_markdown(document.translated_ast, blocks) + "\n"
+        return blocks
 
     @staticmethod
     def reader_html(
@@ -163,6 +167,15 @@ class StructuredExporter:
         image_resolver: Callable[[str], str] | None = None,
     ) -> str:
         """双栏对照阅读器：段级双向跳转、悬停联动、跟随滚动、目录、脚注浮层、问题段导航。"""
+        return StructuredExporter.render_reader(document, title, image_resolver)[0]
+
+    @staticmethod
+    def render_reader(
+        document: AssembledDocument,
+        title: str,
+        image_resolver: Callable[[str], str] | None = None,
+    ) -> tuple[str, list[str]]:
+        """返回 (阅读器 HTML, 找不到的图片)。内联图片两栏共用一份。"""
         source_ast = copy.deepcopy(document.plan.ir.ast)
         target_ast = copy.deepcopy(document.plan.ir.ast)
 
@@ -192,17 +205,22 @@ class StructuredExporter:
             _drop_unsafe_raw(ast["blocks"])
         source_html = pandoc.blocks_to_html(source_ast, source_ast["blocks"], "src-")
         target_html = pandoc.blocks_to_html(target_ast, target_ast["blocks"], "tgt-")
+        inliner = None
         if image_resolver is not None:
-            source_html = _rewrite_images(source_html, image_resolver)
-            target_html = _rewrite_images(target_html, image_resolver)
+            inliner = ImageInliner(image_resolver)
+            source_html = inliner.rewrite(source_html)
+            target_html = inliner.rewrite(target_html)
+        missing = inliner.missing if inliner else []
 
-        return render_reader_html(
+        page = render_reader_html(
             title=title,
             source_html=source_html,
             target_html=target_html,
             toc=_toc(document),
-            stats=document.stats,
+            stats={**document.stats, "missing_images": missing},
+            images=inliner.images if inliner else None,
         )
+        return page, missing
 
     def export_all(
         self,
@@ -213,20 +231,50 @@ class StructuredExporter:
         title: str,
         bilingual: bool = True,
         image_resolver: Callable[[str], str] | None = None,
+        image_locator: ImageLocator | None = None,
+        epub: bool = True,
     ) -> dict | None:
-        """写出 `{stem}.md`、`{stem}.bilingual.md`（可选）、`{stem}.html` 与结构统计；不可用时返回 None。"""
+        """写出 `{stem}.md`、`{stem}.bilingual.md`（可选）、`{stem}.html`、EPUB 与结构统计；不可用时返回 None。
+
+        image_locator 把文档里的图片路径解析为本地文件：阅读器据此内联图片，EPUB 据此打包图片。
+        统计里的 missing_images 列出两者都找不到的图片。
+        """
         document = self.assemble(source_text, records)
         if document is None:
             return None
+        if image_resolver is None and image_locator is not None:
+            image_resolver = resolver_from_locator(image_locator)
         output_dir.mkdir(parents=True, exist_ok=True)
         (output_dir / f"{stem}.md").write_text(self.mono_markdown(document), encoding="utf-8")
         if bilingual:
             (output_dir / f"{stem}.bilingual.md").write_text(self.bilingual_markdown(document), encoding="utf-8")
-        (output_dir / f"{stem}.html").write_text(self.reader_html(document, title, image_resolver), encoding="utf-8")
+        page, missing = self.render_reader(document, title, image_resolver)
+        (output_dir / f"{stem}.html").write_text(page, encoding="utf-8")
+        stats = {**document.stats, "missing_images": missing, "epub": []}
+        if epub:
+            stats["epub"] = self._write_epubs(document, output_dir, stem, title, bilingual, image_locator, missing)
         (output_dir / f"{stem}.structure.json").write_text(
-            json.dumps(document.stats, ensure_ascii=False, indent=2), encoding="utf-8"
+            json.dumps(stats, ensure_ascii=False, indent=2), encoding="utf-8"
         )
-        return document.stats
+        return stats
+
+    def _write_epubs(self, document, output_dir, stem, title, bilingual, locator, missing) -> list[str]:
+        """仅译文与双语两种 EPUB；生成失败只记日志，不影响其他导出。返回成功写出的变体。"""
+        variants = [("mono", f"{stem}.epub", document.translated_ast["blocks"])]
+        if bilingual:
+            variants.append(("bilingual", f"{stem}.bilingual.epub", self.bilingual_blocks(document)))
+        written = []
+        for name, filename, blocks in variants:
+            try:
+                lost = write_epub(
+                    document.translated_ast, blocks, output_dir / filename, title, locator, _drop_unsafe_raw
+                )
+            except Exception:
+                logger.warning("EPUB 导出失败（%s）: %s", name, filename, exc_info=True)
+                continue
+            missing.extend(src for src in lost if src not in missing and not src.startswith(("http://", "https://")))
+            written.append(name)
+        return written
 
 
 # ---------------------------------------------------------------------- #
@@ -506,11 +554,3 @@ def _drop_unsafe_raw(value) -> None:
     elif isinstance(value, dict):
         for item in value.values():
             _drop_unsafe_raw(item)
-
-
-def _rewrite_images(fragment: str, resolver: Callable[[str], str]) -> str:
-    def replace(match: re.Match[str]) -> str:
-        src = html.unescape(match.group(2))
-        return f"{match.group(1)}{html.escape(resolver(src), quote=True)}{match.group(3)}"
-
-    return re.sub(r'(<img\b[^>]*?\bsrc=")([^"]*)(")', replace, fragment)

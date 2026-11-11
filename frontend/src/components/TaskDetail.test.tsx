@@ -11,6 +11,7 @@ vi.mock("../services/api", async () => ({
   ...(await vi.importActual("../services/api")),
   getTaskStatus: vi.fn(),
   getChunks: vi.fn(),
+  getStructure: vi.fn(),
   cancelTranslation: vi.fn(),
   editChunk: vi.fn(),
 }));
@@ -139,7 +140,7 @@ it("结构化导出的任务提供对照阅读器入口，并替代旧双栏 HTM
   ).not.toBeInTheDocument();
   expect(screen.getByText(/12 段对齐/)).toBeInTheDocument();
 });
-it("问题段可在对照阅读器中定位，账本可去术语表审阅，阅读器可在页面内展开", async () => {
+it("问题段在应用内阅读页定位，账本可去术语表审阅，阅读页一次点击进入", async () => {
   vi.mocked(api.getTaskStatus).mockResolvedValue({
     ...task,
     quality_summary: {
@@ -198,7 +199,7 @@ it("问题段可在对照阅读器中定位，账本可去术语表审阅，阅�
   const locate = await screen.findByRole("link", {
     name: "在对照阅读器中定位",
   });
-  expect(locate).toHaveAttribute("href", expect.stringContaining("#seg-41"));
+  expect(locate).toHaveAttribute("href", "/tasks/demo/read?seg=41");
   expect(
     screen.getByText(/术语账本 98 条（本次新增 3 条）/),
   ).toBeInTheDocument();
@@ -206,10 +207,64 @@ it("问题段可在对照阅读器中定位，账本可去术语表审阅，阅�
     "href",
     "/glossary",
   );
-  const user = userEvent.setup();
-  await user.click(screen.getByRole("button", { name: "在页面中对照阅读" }));
-  expect(screen.getByTitle("对照阅读器")).toHaveAttribute(
-    "src",
-    expect.stringContaining("inline=true"),
+  expect(screen.getByRole("link", { name: "对照阅读" })).toHaveAttribute(
+    "href",
+    "/tasks/demo/read",
   );
+});
+
+it("有 EPUB 时提供两种下载，缺图时列出找不到的图片", async () => {
+  vi.mocked(api.getTaskStatus).mockResolvedValue({
+    ...task,
+    quality_summary: {
+      total: 1,
+      failed: 0,
+      needs_review: 0,
+      repaired: 0,
+      structured: 1,
+      segments: 3,
+      dead_links: 0,
+      missing_images: 1,
+      epub: 2,
+    },
+  });
+  vi.mocked(api.getChunks).mockResolvedValue({
+    total: 0,
+    revision: "v",
+    chunks: [],
+  });
+  vi.mocked(api.getStructure).mockResolvedValue({
+    task_id: "demo",
+    segments: 3,
+    dead_links: [],
+    missing_images: ["images/lost.png"],
+    epub: ["mono", "bilingual"],
+  });
+  render(
+    <MemoryRouter initialEntries={["/tasks/demo"]}>
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <App>
+          <Routes>
+            <Route path="/tasks/:taskId" element={<TaskDetail />} />
+          </Routes>
+        </App>
+      </QueryClientProvider>
+    </MemoryRouter>,
+  );
+  expect(
+    await screen.findByRole("link", { name: "中文 EPUB" }),
+  ).toHaveAttribute(
+    "href",
+    expect.stringContaining("format=epub&variant=mono"),
+  );
+  expect(screen.getByRole("link", { name: "双语 EPUB" })).toHaveAttribute(
+    "href",
+    expect.stringContaining("format=epub&variant=bilingual"),
+  );
+  expect(await screen.findByText("images/lost.png")).toBeInTheDocument();
+  expect(screen.getByText(/1 张图片找不到/)).toBeInTheDocument();
 });

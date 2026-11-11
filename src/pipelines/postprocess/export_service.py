@@ -578,6 +578,18 @@ class ExportService:
         return f'<img src="{html_escape.escape(src, quote=True)}" alt="{html_escape.escape(alt or Path(raw_path).stem, quote=True)}">'
 
     @classmethod
+    def image_locator(cls, asset_roots: list[str | Path]):
+        """返回把文档里的图片路径解析为资源目录内本地文件的函数（找不到返回 None）。"""
+        roots = [Path(root) for root in asset_roots if Path(root).exists()]
+
+        def locate(src: str) -> Path | None:
+            if src.startswith(("http://", "https://", "data:")) or not roots:
+                return None
+            return cls._resolve_image_source(Path(src), None, roots)
+
+        return locate
+
+    @classmethod
     def image_embedder(cls, asset_roots: list[str | Path]):
         """返回把图片路径解析并内联为 data URI 的函数（找不到时原样返回），供单文件 HTML 使用。"""
         roots = [Path(root) for root in asset_roots if Path(root).exists()]

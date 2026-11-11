@@ -10,6 +10,8 @@
 
 [English](README.md) | **简体中文**
 
+**[在线演示 →](https://sena1818.github.io/agentic-translator/)** 用公版文本（梭罗《瓦尔登湖》节选）生成的双栏联动对照阅读器，另可下载 [中文 EPUB](https://sena1818.github.io/agentic-translator/walden.epub) 与 [双语 EPUB](https://sena1818.github.io/agentic-translator/walden.bilingual.epub)。
+
 ![Web 界面](docs/images/review-workspace.jpg)
 
 ## 为什么是 Agentic？
@@ -33,7 +35,8 @@
 - 🛡️ **选择性修复** —— 质检标记高风险块，只有这些块触发审校员一次性重译
 - 💾 **Chunk 级 SQLite 缓存** —— 天然支持断点续传；缓存键包含模型、术语表、Prompt 版本与文档画像指纹
 - ⚠️ **失败隔离** —— 单块失败写入占位符，绝不阻塞整个文档
-- 🌗 **双语对照导出** —— 按段落对齐的原文/译文 Markdown，以及上面的联动对照阅读器
+- 🌗 **双语对照导出** —— 按段落对齐的原文/译文 Markdown，以及上面的联动对照阅读器；阅读器可在网页应用内以固定地址打开（可收藏、刷新不丢），离线文件里每张图只存一份、两栏共用
+- 📖 **EPUB 导出** —— 仅译文与双语两种 EPUB3，带目录、图片与可跳转脚注；找不到的图片列入导出统计并在任务详情里显示
 - 🌐 **Web 管理界面** —— React + FastAPI，SQLite 任务队列，支持取消、恢复、逐块重译及人工编辑
 - 🔌 **MCP Server** —— stdio 传输，把翻译、任务管理、术语表工具暴露给 Claude Desktop 等 MCP 客户端
 - 🔭 **可观测性** —— 可选接入 Langfuse，追踪完整 Agent 调用链与逐块 token 消耗，未配置时自动降级为无操作

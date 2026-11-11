@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import functools
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -132,3 +133,37 @@ def blocks_to_html(ast_template: dict, blocks: list[dict], id_prefix: str) -> st
         ],
         _document(ast_template, blocks),
     )
+
+
+def blocks_to_epub(
+    ast_template: dict,
+    blocks: list[dict],
+    output_path: str,
+    *,
+    title: str,
+    lang: str = "zh-CN",
+    resource_paths: list[str] | None = None,
+) -> None:
+    """把块列表写成 EPUB3：按一级标题分章、自动目录、脚注带回链、MathML 公式。
+
+    图片路径应已解析为本地绝对路径（或 resource_paths 下的相对路径），pandoc 会把图片打进包里。
+    """
+    args = [
+        "-f",
+        "json",
+        "-t",
+        "epub3",
+        "--toc",
+        "--toc-depth=3",
+        "--mathml",
+        f"--metadata=lang:{lang}",
+        "-o",
+        output_path,
+    ]
+    meta = dict(ast_template.get("meta") or {})
+    if "title" not in meta:  # 源文 YAML 里有标题时沿用，否则用任务文件名
+        args.append(f"--metadata=title:{title}")
+    if resource_paths:
+        args.append("--resource-path=" + os.pathsep.join(resource_paths))
+    payload = {"pandoc-api-version": ast_template["pandoc-api-version"], "meta": meta, "blocks": blocks}
+    _run(args, json.dumps(payload, ensure_ascii=False))

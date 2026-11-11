@@ -239,6 +239,9 @@ class TranslationService:
             summary["segments"] = stats.get("segments", 0)
             summary["segments_with_issues"] = stats.get("segments_with_issues", 0)
             summary["dead_links"] = len(stats.get("dead_links", []))
+            summary["missing_images"] = len(stats.get("missing_images", []))
+            # EPUB 变体：1 = 仅译文，2 = 仅译文 + 双语
+            summary["epub"] = len(stats.get("epub", []))
         return summary
 
     def _render(self, task, directory, results, asset_sources):
@@ -296,9 +299,7 @@ class TranslationService:
                 task.task_id,
                 title=Path(task.filename).stem,
                 bilingual=task.bilingual,
-                image_resolver=ExportService.image_embedder(
-                    [*asset_sources, directory / "assets" / task.task_id]
-                ),
+                image_locator=ExportService.image_locator([*asset_sources, directory / "assets" / task.task_id]),
             )
         except Exception:
             logger.warning("结构化导出失败，回落到旧导出: %s", task.task_id, exc_info=True)
