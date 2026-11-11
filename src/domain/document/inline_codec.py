@@ -174,6 +174,41 @@ def normalize_tag_variants(tagged: str, tags: dict[str, dict]) -> str:
     return _VARIANT_TAG_RE.sub(replace, tagged)
 
 
+def canonicalize_tags(tagged: str, source_inlines: list[dict]) -> str:
+    """不调模型、确定性地修好能修的标签错误，文字一个字不动：
+
+    - 写走样的标签（《i1》、＜i1＞、< i1 >）还原成标准写法；
+    - 源段里不存在的标签（模型自创的 <b9>）删掉；
+    - 没有对应开标签的多余闭合标签删掉。
+
+    未闭合标签和缺失的原子标签不在这里修：放在哪里需要理解句子，交给只修标签的模型修复。
+    """
+    tags = encode(source_inlines).tags
+    tagged = normalize_tag_variants(tagged, tags)
+    out: list[str] = []
+    opened: list[str] = []
+    position = 0
+    for match in _TAG_RE.finditer(tagged):
+        out.append(tagged[position : match.start()])
+        position = match.end()
+        closing, base, number, self_closing = match.groups()
+        name = f"{base}{number}"
+        node = tags.get(name)
+        if node is None:
+            continue
+        if closing:
+            if name not in opened:
+                continue
+            while opened and opened[-1] != name:
+                opened.pop()
+            opened.pop()
+        elif not self_closing and node["t"] in PAIR_TAGS:
+            opened.append(name)
+        out.append(match.group(0))
+    out.append(tagged[position:])
+    return "".join(out)
+
+
 def decode(tagged: str, source_inlines: list[dict]) -> DecodeResult:
     """把带标签译文解码回行内节点。
 

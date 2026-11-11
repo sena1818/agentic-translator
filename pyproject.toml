@@ -40,6 +40,7 @@ translate = "translate:main"
 translator-mcp = "src.interfaces.mcp.server:main"
 translator-eval = "src.evaluation.cli:main"
 translator-qa-bench = "src.evaluation.qa_bench:main"
+translator-repair-bench = "src.evaluation.repair_bench:main"
 
 [tool.setuptools]
 py-modules = ["translate"]

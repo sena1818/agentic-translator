@@ -41,8 +41,9 @@ def _fake_translate(prompt_value):
     return f"译文::{body}"
 
 
-def _fake_repair(prompt_value):  # 本套用例不触发修复，占位保证 Runnable 协议完整
-    return "修正后的译文"
+def _fake_repair(prompt_value):
+    # 只有带术语表的用例触发修复：给出真正修好术语的译文（只有修好目标问题、且不新增问题才会被采用）
+    return "阿尔法 修正后的译文"
 
 
 def _fake_analyst(prompt_value):

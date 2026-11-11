@@ -91,3 +91,12 @@ translator-qa-bench --records <run>/<书名>.records.json --glossary <术语表>
 - 自带段对在 `datasets/injection_pairs.json`（自撰，不含版权文本）。种子反例来自 `translation-quality-deepening.md`。
 - 当前规则质检的基线数字见 [qa_baseline.md](qa_baseline.md)；之后改质检（#14、#19、#20）都以这里的召回率和误报率为验收。
 - 注入错误比真实错误规整，召回率是"能否抓住这类已知错误"，不是真实译文的检出率。
+
+## 9. 修复基准（分类型修复是否"修好一类、新增另一类"）
+
+```bash
+translator-repair-bench --max-fix-attempts 1
+```
+
+用注入基准的段对和脚本化的假模型（翻译员注入错误、审校员偶尔手滑引入新问题），统计被采用的手滑修复、
+修复后仍有问题的段和模型调用次数。改动前后对比见 [typed_repair.md](typed_repair.md)。

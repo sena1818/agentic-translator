@@ -20,6 +20,8 @@
 | 审校员 | Reviewer / Checker | 只对质检不通过的高风险块介入修复的 Agent 角色。 |
 | 质检报告 | QualityReport | 单块翻译的校验结果：未翻译残留、术语遗漏、Markdown 结构问题。 |
 | 修复 | Repair | 审校员对高风险块的一次性重译尝试。区别于"重试"（Retry，指 API 调用失败的指数退避）。 |
+| 分类型修复 | Typed Repair | 结构化模式下按问题类型分路修复：确定性标签修复 → 重译 → 只修标签 → 数字 → 术语，每路后重新质检；目标问题消失且不新增其他问题才采用，否则保留原译并标记待人工处理。见 docs/evals/typed_repair.md。 |
+| 约束式编辑 | Constrained Edit | 数字与术语修复的回复格式：模型只给出"把哪段换成什么"，由程序替换并校验改动范围，其余文字不会被改写。 |
 | 编排引擎 | Engine | 多 Agent 流程的编排实现，取值 `langgraph`（默认，文档级 StateGraph）或 `native`（手写 asyncio，过渡期保留）。见 ADR-0001。 |
 | 顺序输出 | Ordered Output | 块并发乱序完成、但按原文顺序流式写盘的保证，由 OutputManager 提供。 |
 | 翻译缓存 | TranslationCache | chunk 级 SQLite 缓存，键含模型、服务地址、术语表、上下文、质检配置、Prompt 版本与文档画像指纹；承担断点恢复职责。 |

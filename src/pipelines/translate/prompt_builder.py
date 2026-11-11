@@ -66,6 +66,48 @@ STRUCTURED_TAG_RULES = [
 ]
 
 
+_SEG_OUTPUT = '对每个段输出一行 <seg id="N">完整译文</seg>，不要回显原文或问题，不要输出其他内容。'
+_EDIT_OUTPUT = (
+    "不要输出整段译文。对每处需要改的地方输出一行：\n"
+    '<edit id="N"><from>当前译文中要替换的片段（逐字照抄）</from><to>替换后的片段</to></edit>\n'
+    "程序会把 from 原样替换成 to，其余文字保持不变；不要输出其他内容。"
+)
+TYPED_REPAIR_INSTRUCTIONS = {
+    "retranslate": (
+        "重译：该段缺失、未翻译或被截断",
+        _SEG_OUTPUT,
+        ["依据原文完整翻译该段，不要遗漏任何句子", "遵守术语表", "不要添加说明或注释"],
+    ),
+    "structure": (
+        "只修标签：标签缺失、未闭合或写错",
+        _SEG_OUTPUT,
+        [
+            "只增删或移动标签，标签外的文字一个字也不要改",
+            "缺失的自闭合标签放回语义对应的位置；未闭合的成对标签在其包裹的文字之后闭合",
+            "程序会核对：修复前后去掉标签的文字必须完全相同，否则修复作废",
+        ],
+    ),
+    "number": (
+        "只修数字：译文中的数字与原文不符或缺失",
+        _EDIT_OUTPUT,
+        [
+            "from 取包含错误数字（或缺数字位置）的最短片段",
+            "to 只改数字及紧邻的单位、量词，其他文字不变",
+            "原文数字可以写成中文习惯（如 55 million → 5500万）",
+        ],
+    ),
+    "terminology": (
+        "只修术语：术语没有按术语表翻译",
+        _EDIT_OUTPUT,
+        [
+            "from 取当前译文中该术语的错误译法（术语被漏掉时，取它应在位置前后的几个字）",
+            "to 只把那一处换成术语表中的中文译名（不带括注的英文），前后文字逐字保留",
+            "每个术语每处出现各输出一行 edit",
+        ],
+    ),
+}
+
+
 def _numbered(items: list[str]) -> str:
     return "\n".join(f"{index}. {item}" for index, item in enumerate(items, 1))
 
@@ -157,12 +199,16 @@ class TranslationPromptBuilder:
 """
         return ChatPromptTemplate.from_template(template)
 
-    def build_structured_repair_prompt(self) -> ChatPromptTemplate:
-        """结构化模式：只修复被质检点名的段。"""
+    def build_typed_repair_prompt(self, route: str) -> ChatPromptTemplate:
+        """结构化模式的分类型修复：每一路只修一类问题，回复格式随类型而定。"""
+        task, output, rules = TYPED_REPAIR_INSTRUCTIONS[route]
+        tag_rules = f"\n【标签规则】(最高优先级):\n{_numbered(STRUCTURED_TAG_RULES)}\n" if route in {"retranslate", "structure"} else ""
         template = f"""{self.repair_role}
 
-下面每个【段 N】给出了原文、当前译文和质检发现的问题。请只针对问题修正译文，
-对每个段输出一行 <seg id="N">修正后的完整译文</seg>，不要回显原文或问题。
+【修复类型】{task}
+
+下面每个【段 N】给出了原文、当前译文和质检发现的问题。
+{output}
 
 【文档分析员备忘】:
 {{document_profile}}
@@ -178,11 +224,8 @@ class TranslationPromptBuilder:
 
 ---
 要求：
-{_numbered(self.repair_requirements)}
-
-【标签规则】(最高优先级):
-{_numbered(STRUCTURED_TAG_RULES)}
-"""
+{_numbered(rules)}
+{tag_rules}"""
         return ChatPromptTemplate.from_template(template)
 
     def build_repair_prompt(self) -> ChatPromptTemplate:
