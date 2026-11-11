@@ -1,4 +1,5 @@
 """评测框架的数据模型。"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -14,6 +15,8 @@ DIMENSION_LABELS = {
 # 打分区间（1~5 的 Likert 量表）
 SCORE_MIN = 1.0
 SCORE_MAX = 5.0
+# 准确性不高于此分视为严重误译，综合分以准确性封顶
+SEVERE_ACCURACY = 2.0
 
 
 @dataclass(frozen=True)
@@ -36,8 +39,12 @@ class DimensionScores:
 
     @property
     def overall(self) -> float:
-        """三维平均，作为综合分。"""
-        return round((self.accuracy + self.fluency + self.terminology) / 3, 3)
+        """综合分：三维平均，但准确性 ≤ SEVERE_ACCURACY 时不超过准确性分。
+
+        严重误译（否定反转、数字写反）时译文可能依旧通顺，单纯平均会让流畅度把它拉回中等。
+        """
+        mean = round((self.accuracy + self.fluency + self.terminology) / 3, 3)
+        return min(mean, self.accuracy) if self.accuracy <= SEVERE_ACCURACY else mean
 
     def as_dict(self) -> dict[str, float]:
         return {
@@ -50,11 +57,20 @@ class DimensionScores:
 
 @dataclass(frozen=True)
 class JudgeVerdict:
-    """裁判对单条译文的裁决。"""
+    """裁判对单条译文的裁决。
+
+    裁判输出缺维度、分值非法或无法解析时 scores 为 None，记为无效裁决：
+    不参与均值，单独计数，避免把"没评出来"当成中等表现。
+    """
 
     sample_id: str
-    scores: DimensionScores
+    scores: DimensionScores | None
     rationale: str = ""
+    invalid_reason: str = ""
+
+    @property
+    def valid(self) -> bool:
+        return self.scores is not None
 
 
 @dataclass
@@ -82,12 +98,14 @@ class VariantAggregate:
     mean_overall: float
     total_tokens: int
     mean_latency_s: float
+    invalid_judgments: int = 0
 
     def as_dict(self) -> dict:
         return {
             "variant": self.variant,
             "label": self.label,
             "n": self.n,
+            "invalid_judgments": self.invalid_judgments,
             "mean_accuracy": self.mean_accuracy,
             "mean_fluency": self.mean_fluency,
             "mean_terminology": self.mean_terminology,

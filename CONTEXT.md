@@ -27,8 +27,10 @@
 | 占位符 | Placeholder | 块翻译最终失败时写入的标记文本，保证整体产出不被单块阻塞。 |
 | 可观测 | Observability / Langfuse | 经 LangChain 回调把 Agent 调用链与逐块 token 上报 Langfuse 的能力，配置开关、可降级为无操作。见 docs/observability.md。 |
 | 裁判 | Judge | LLM-as-judge 评测中给译文打分的模型角色，用异源强模型（Gemini），避免与选手同源偏好。 |
+| 无效裁决 | Invalid Verdict | 裁判输出缺维度、分值非法或无法解析的一条裁决：不参与均值，单独计数，不补中点分。 |
 | 对照组 / 变体 | Comparison / Variant | 评测中只拨动一个开关的两两对照（引擎、多 Agent 开关、术语表有无），每个取值为一个变体。 |
-| 译法一致率 | Consistency Rate | 术语表外重复短语每次是否译成同一中文的比率，作为是否立项 RAG 翻译记忆的量化门槛（0.90）。见 ADR-0002。 |
+| 译法一致率 | Consistency Rate | 术语表外重复短语每次是否译成同一中文的比率，按句对齐后求签名；启发式参考，用作 RAG 翻译记忆立项门槛（0.90）的依据之一。见 ADR-0002。 |
+| 注入错误基准 | Injected-Error Benchmark | 把正确译文按程序改坏成已知类型的错误（反转否定、交换数字、漏译半句等），统计质检对每类的召回率与原样段对上的误报率；不需密钥和人工标注。 |
 
 ## 任务与审校
 

@@ -25,6 +25,7 @@ from src.evaluation import (
     compute_consistency,
     parse_scores,
 )
+from src.evaluation.judge import InvalidVerdictError
 from src.evaluation.report import CostSummary, EvalReport, render_comparison_table, render_report
 
 # ---------- parse_scores ----------
@@ -42,15 +43,35 @@ def test_parse_scores_fenced_and_surrounding_text():
     assert (scores.accuracy, scores.fluency, scores.terminology) == (4.0, 5.0, 4.0)
 
 
-def test_parse_scores_clamps_out_of_range():
-    scores = parse_scores('{"accuracy": 9, "fluency": 0, "terminology": 3}')
-    assert scores.accuracy == 5.0  # 上限夹取
-    assert scores.fluency == 1.0  # 下限夹取
+def test_parse_scores_rejects_out_of_range():
+    with pytest.raises(InvalidVerdictError):
+        parse_scores('{"accuracy": 9, "fluency": 0, "terminology": 3}')
 
 
-def test_parse_scores_missing_dimension_falls_back_to_midpoint():
-    scores = parse_scores('{"accuracy": 4, "fluency": 5}')
-    assert scores.terminology == 3.0  # (1+5)/2
+def test_parse_scores_missing_dimension_is_invalid_not_midpoint():
+    with pytest.raises(InvalidVerdictError, match="terminology"):
+        parse_scores('{"accuracy": 4, "fluency": 5}')
+    with pytest.raises(InvalidVerdictError):
+        parse_scores("{}")
+    with pytest.raises(InvalidVerdictError):
+        parse_scores('{"accuracy": "good", "fluency": 5, "terminology": 5}')
+
+
+def test_overall_does_not_let_fluency_mask_severe_mistranslation():
+    assert DimensionScores(1, 5, 5).overall == 1.0
+    assert DimensionScores(2, 5, 5).overall == 2.0
+    assert DimensionScores(4, 5, 3).overall == 4.0
+
+
+def test_empty_judge_output_yields_invalid_verdict_that_is_counted():
+    judge = TranslationJudge(RunnableLambda(lambda _p: "{}"), "{source}{translation}{glossary}")
+    verdict = asyncio.run(judge.score(EvalSample("s1", "paper", "src"), "译文"))
+    assert verdict.valid is False and verdict.scores is None and "缺少维度" in verdict.invalid_reason
+
+    runs = [VariantRun("v", "s1", "t1"), VariantRun("v", "s2", "t2")]
+    agg = aggregate_variant("v", "V", runs, [verdict, JudgeVerdict("s2", DimensionScores(4, 4, 4))])
+    assert agg.n == 1 and agg.invalid_judgments == 1
+    assert agg.mean_overall == 4.0  # 无效裁决没有被当成 3 分拉低均值
 
 
 def test_parse_scores_without_json_raises():
@@ -202,3 +223,24 @@ def test_render_report_includes_decision_and_cost():
     assert "立项文档内翻译记忆" in text  # build-rag 决策文案
     assert "1234" in text
     assert "3.50 元" in text
+
+
+def test_unrelated_shared_sentence_no_longer_makes_phrase_consistent():
+    segments = [
+        AlignedSegment("The buried engine awakens. This is a shared note.", "埋藏引擎醒来。这是一条共同注释。"),
+        AlignedSegment("A buried engine stops. This is a shared note.", "地下发动机停转。这是一条共同注释。"),
+    ]
+    report = compute_consistency(segments)
+    phrases = {p.phrase: p for p in report.phrases}
+    assert phrases["buried engine"].consistent is False
+    assert phrases["shared note"].consistent is True
+    assert report.aligned_units == 4 and report.unaligned_units == 0
+
+
+def test_consistency_skips_paragraphs_whose_sentences_do_not_align():
+    segments = [
+        AlignedSegment("The buried engine awakens. It hums.", "埋藏引擎醒来并嗡嗡作响。"),
+        AlignedSegment("A buried engine stops.", "埋藏引擎停转。"),
+    ]
+    report = compute_consistency(segments)
+    assert report.unaligned_units == 1 and report.total_phrases == 0

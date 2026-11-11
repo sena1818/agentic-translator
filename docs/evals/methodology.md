@@ -18,9 +18,13 @@
 ## 2. 裁判（LLM-as-judge）
 
 - **裁判模型：Gemini**，与选手 DeepSeek **异源**，避免同源模型的自我偏好。
-- **打分维度**（1~5 Likert）：准确性 accuracy、流畅度 fluency、术语一致性 terminology；综合分取三维平均。
+- **打分维度**（1~5 Likert）：准确性 accuracy、流畅度 fluency、术语一致性 terminology。
+- **综合分**：三维平均；但准确性 ≤ 2（严重误译）时综合分不超过准确性分，避免通顺的错译被流畅度拉回中等。
 - **裁判 Prompt** 全文在 `judge_prompt.md`（代码直接读取，占位符 `{source}/{translation}/{glossary}`），可查可改。
-- 打分解析对 ```json 代码块、前后解释文字、越界分值、缺失维度都做了容错（见 `src/evaluation/judge.py`）。
+- 打分解析只对格式宽容（```json 代码块、前后解释文字）。缺维度、分值不是数字、超出 1~5、或找不到 JSON 时，
+  该条记为**无效裁决**：不参与均值，在分数表"无效裁决"列单独计数（见 `src/evaluation/judge.py`）。
+  旧做法把缺失维度补成 3 分，会把"没评出来"当成中等表现。
+- 裁判仍是自动辅助，异源只能减轻自我偏好，结论需要人工校准。
 
 ## 3. 三组对照
 
@@ -67,3 +71,23 @@ LangGraph 与 Native 两引擎共用同一批组件（prompt_builder / translati
 
 见 `../adr/0002-rag-translation-memory-threshold.md`：统计术语表外重复短语的译法一致率，
 没有候选短语时报告 `rate=null`、`insufficient-data`，不作架构结论。存在候选时，≥ 90% 写 ADR 记录不做，< 90% 另立 sqlite-vec 翻译记忆的 PRD。一致率算法见 `src/evaluation/consistency.py`。
+
+**按句对齐**：块级 (原文, 译文) 先按空行拆段，再按句末标点拆句；两侧段数、句数都相同才一一对齐，
+短语的译法签名只在它所在的那一句的译文里求。对不齐的段落不参与统计，报告里单独给出数量。
+旧做法在整块译文上求公共子串，两块里碰巧有同一句无关的话就会造成假一致。
+这仍是启发式指标（同一句里另一个重复短语的译法也可能成为签名），不能单独作为架构决策依据。
+
+## 8. 注入错误基准（规则质检的召回率与误报率）
+
+不需要密钥、不需要人工标注：取正确的段对，用程序把译文改坏成七类已知错误（反转否定、改变情态强弱、
+交换数字、漏译半句、换错术语、改链接地址、改代码内容），统计质检报出新增问题的比例；
+原样段对上报出任何问题算误报。
+
+```bash
+translator-qa-bench --out docs/evals/results                       # 自带段对 + 六个种子反例
+translator-qa-bench --records <run>/<书名>.records.json --glossary <术语表>.json   # 另在本地真实译文上跑
+```
+
+- 自带段对在 `datasets/injection_pairs.json`（自撰，不含版权文本）。种子反例来自 `translation-quality-deepening.md`。
+- 当前规则质检的基线数字见 [qa_baseline.md](qa_baseline.md)；之后改质检（#14、#19、#20）都以这里的召回率和误报率为验收。
+- 注入错误比真实错误规整，召回率是"能否抓住这类已知错误"，不是真实译文的检出率。

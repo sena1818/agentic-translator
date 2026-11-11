@@ -52,12 +52,12 @@ def render_comparison_table(group: ComparisonGroup) -> str:
     lines = [
         f"### {group.title}",
         "",
-        "| 变体 | 样本数 | 准确性 | 流畅度 | 术语一致性 | 综合 | 总 token | 平均延迟(s) |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| 变体 | 有效样本 | 无效裁决 | 准确性 | 流畅度 | 术语一致性 | 综合 | 总 token | 平均延迟(s) |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for v in group.variants:
         lines.append(
-            f"| {v.label} | {v.n} | {v.mean_accuracy:.2f} | {v.mean_fluency:.2f} "
+            f"| {v.label} | {v.n} | {v.invalid_judgments} | {v.mean_accuracy:.2f} | {v.mean_fluency:.2f} "
             f"| {v.mean_terminology:.2f} | {v.mean_overall:.2f} | {v.total_tokens} | {v.mean_latency_s:.2f} |"
         )
     return "\n".join(lines)
@@ -79,6 +79,8 @@ def render_consistency(report: ConsistencyReport) -> str:
         f"- 译法一致短语：{report.consistent_phrases}",
         f"- 一致率：**{rate_text}**（门槛 {report.threshold:.0%}）",
         f"- 决策：{decision_text}",
+        f"- 句级对齐：{report.aligned_units} 句对参与统计，{report.unaligned_units} 个段落因段数/句数对不上未计入",
+        "- 说明：这是启发式指标，签名按短语所在句求得；不能单独作为架构决策依据，需人工抽查。",
     ]
     if report.total_phrases == 0:
         lines.append(

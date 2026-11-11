@@ -1,16 +1,20 @@
 """
-术语表外重复短语的译法一致率 —— RAG 门槛决策的量化依据。
+术语表外重复短语的译法一致率 —— RAG 门槛决策的启发式参考。
 
 问题：不在术语表里、但在文档中反复出现的英文短语，模型每次是否译成同一个中文？
-若一致率高，说明单块翻译已能自洽，不需要文档内翻译记忆（RAG）；若低，则重复短语译法飘忽，
-值得为其立项 sqlite-vec 翻译记忆。门槛取 0.90（见 issue #6 / ADR-0002）。
 
 方法（见 docs/evals/methodology.md）：
-1. 输入为按块对齐的 (原文, 译文) 段落对（评测直接取每个 chunk 的 result.original/translation）；
-2. 在原文侧抽取跨段重复、且未被术语表覆盖的英文 n-gram 作为候选短语；
-3. 对每个候选短语，取其所有出现段落的译文，求它们的最长公共中文子串作为"译法签名"：
-   有足够长的公共中文子串 → 判为译法一致，否则不一致；
-4. 一致率 = 一致短语数 / 候选短语数。
+1. 输入为 (原文, 译文) 对（评测取每个 chunk 的 result.original/translation）；
+2. 先把每对拆成段落、再拆成句子，只有两侧段数、句数都相同时才按顺序一一对齐；
+   对不齐的单元不参与统计，只计数（宁可少算，不拿无关文字凑一致）；
+3. 在原文句子里抽取跨句重复、且未被术语表覆盖的英文 n-gram 作为候选短语；
+4. 对每个候选短语，取它每次出现所在句子的对应译句，求公共中文子串作为"译法签名"：
+   有足够长的公共中文子串 → 一致，否则不一致；
+5. 一致率 = 一致短语数 / 候选短语数。
+
+旧做法在整块译文上求公共子串：两块里碰巧都有一句"这是一条共同注释。"，
+就会让毫不相干的短语被判为一致。按句对齐后，签名只能来自短语所在的那一句。
+这仍是启发式指标：同一句里另一个重复短语的译法也可能成为签名，结论不能替代人工核对。
 """
 
 from __future__ import annotations
@@ -22,6 +26,10 @@ _WORD_RE = re.compile(r"[A-Za-z][A-Za-z'\-]*")
 _CJK_RE = re.compile(r"[一-鿿]")
 # 句子边界：n-gram 不跨句拼接，避免 "baseline the buried engine" 这类跨句号的伪短语
 _SENTENCE_SPLIT_RE = re.compile(r"[.!?;:\n]+")
+# 对齐用的句末切分：英文句号/问号/叹号后接空白；中文句号/问号/叹号
+_EN_SENTENCE_END_RE = re.compile(r"(?<=[.!?])\s+(?=[\"'“‘(\[]?[A-Z0-9])")
+_ZH_SENTENCE_END_RE = re.compile(r"(?<=[。！？])(?![”’」』）)])")
+_PARAGRAPH_RE = re.compile(r"\n\s*\n")
 
 # 只由停用词构成的短语没有指纹价值，剔除
 _STOPWORDS = {
@@ -88,6 +96,8 @@ class ConsistencyReport:
     consistent_phrases: int
     decision: str  # "no-rag"（≥门槛，写 ADR 不做）| "build-rag"（<门槛，立项）
     phrases: list[PhraseConsistency] = field(default_factory=list)
+    aligned_units: int = 0  # 成功对齐的句对数
+    unaligned_units: int = 0  # 段数或句数对不上、未参与统计的段落数
 
     def as_dict(self) -> dict:
         return {
@@ -96,6 +106,8 @@ class ConsistencyReport:
             "total_phrases": self.total_phrases,
             "consistent_phrases": self.consistent_phrases,
             "decision": self.decision,
+            "aligned_units": self.aligned_units,
+            "unaligned_units": self.unaligned_units,
             "phrases": [
                 {
                     "phrase": p.phrase,
@@ -106,6 +118,34 @@ class ConsistencyReport:
                 for p in self.phrases
             ],
         }
+
+
+def _split_sentences(text: str, pattern: re.Pattern) -> list[str]:
+    return [part.strip() for part in pattern.split(text.strip()) if part.strip()]
+
+
+def align_sentences(segments: list[AlignedSegment]) -> tuple[list[AlignedSegment], int]:
+    """把块级 (原文, 译文) 拆成句级对；返回 (对齐的句对, 未能对齐的段落数)。
+
+    先按空行拆段，段数不同则整块算一个未对齐段落；段内再按句末标点拆句，句数不同则该段未对齐。
+    中文常把两句并成一句、或把长句拆开，句数不等时宁可放弃，也不硬配。
+    """
+    aligned: list[AlignedSegment] = []
+    unaligned = 0
+    for segment in segments:
+        sources = [p for p in _PARAGRAPH_RE.split(segment.source.strip()) if p.strip()]
+        targets = [p for p in _PARAGRAPH_RE.split(segment.translation.strip()) if p.strip()]
+        if len(sources) != len(targets):
+            unaligned += max(len(sources), 1)
+            continue
+        for source, target in zip(sources, targets, strict=True):
+            source_sentences = _split_sentences(source, _EN_SENTENCE_END_RE)
+            target_sentences = _split_sentences(target, _ZH_SENTENCE_END_RE)
+            if len(source_sentences) != len(target_sentences):
+                unaligned += 1
+                continue
+            aligned += [AlignedSegment(s, t) for s, t in zip(source_sentences, target_sentences, strict=True)]
+    return aligned, unaligned
 
 
 def _tokenize(text: str) -> list[str]:
@@ -211,8 +251,10 @@ def compute_consistency(
 ) -> ConsistencyReport:
     """计算术语表外重复短语的译法一致率并给出 RAG 门槛决策。
 
+    输入可以是块级对，内部先按句对齐（见 align_sentences）。
     无候选短语时标记样本不足，不输出质量结论。
     """
+    segments, unaligned = align_sentences(segments)
     glossary_terms = _glossary_terms(glossary or {})
     candidates = _candidate_phrases(segments, glossary_terms, min_n, max_n, min_occurrences)
 
@@ -241,4 +283,6 @@ def compute_consistency(
         consistent_phrases=consistent,
         decision=decision,
         phrases=phrase_reports,
+        aligned_units=len(segments),
+        unaligned_units=unaligned,
     )

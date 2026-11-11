@@ -1,6 +1,6 @@
 {
   "meta": {
-    "date": "2026-10-03",
+    "date": "2026-11-12",
     "judge_model": "dry-run 假裁判",
     "candidate_model": "dry-run 假选手",
     "dataset": "dataset.json",
@@ -17,23 +17,25 @@
           "variant": "langgraph",
           "label": "LangGraph",
           "n": 2,
+          "invalid_judgments": 0,
           "mean_accuracy": 4.0,
           "mean_fluency": 4.0,
           "mean_terminology": 4.0,
           "mean_overall": 4.0,
           "total_tokens": 0,
-          "mean_latency_s": 0.141
+          "mean_latency_s": 0.184
         },
         {
           "variant": "native",
           "label": "Native",
           "n": 2,
+          "invalid_judgments": 0,
           "mean_accuracy": 4.0,
           "mean_fluency": 4.0,
           "mean_terminology": 4.0,
           "mean_overall": 4.0,
           "total_tokens": 0,
-          "mean_latency_s": 0.098
+          "mean_latency_s": 0.099
         }
       ]
     },
@@ -45,23 +47,25 @@
           "variant": "multi_on",
           "label": "多 Agent 开",
           "n": 2,
+          "invalid_judgments": 0,
           "mean_accuracy": 4.0,
           "mean_fluency": 4.0,
           "mean_terminology": 4.0,
           "mean_overall": 4.0,
           "total_tokens": 0,
-          "mean_latency_s": 0.071
+          "mean_latency_s": 0.09
         },
         {
           "variant": "multi_off",
           "label": "多 Agent 关",
           "n": 2,
+          "invalid_judgments": 0,
           "mean_accuracy": 4.0,
           "mean_fluency": 4.0,
           "mean_terminology": 4.0,
           "mean_overall": 4.0,
           "total_tokens": 0,
-          "mean_latency_s": 0.055
+          "mean_latency_s": 0.087
         }
       ]
     },
@@ -73,23 +77,25 @@
           "variant": "glossary_on",
           "label": "术语表有",
           "n": 2,
+          "invalid_judgments": 0,
           "mean_accuracy": 4.0,
           "mean_fluency": 4.0,
           "mean_terminology": 4.0,
           "mean_overall": 4.0,
           "total_tokens": 0,
-          "mean_latency_s": 0.064
+          "mean_latency_s": 0.091
         },
         {
           "variant": "glossary_off",
           "label": "术语表无",
           "n": 2,
+          "invalid_judgments": 0,
           "mean_accuracy": 4.0,
           "mean_fluency": 4.0,
           "mean_terminology": 4.0,
           "mean_overall": 4.0,
           "total_tokens": 0,
-          "mean_latency_s": 0.05
+          "mean_latency_s": 0.087
         }
       ]
     }
@@ -100,6 +106,8 @@
     "total_phrases": 0,
     "consistent_phrases": 0,
     "decision": "insufficient-data",
+    "aligned_units": 2,
+    "unaligned_units": 6,
     "phrases": []
   },
   "cost": {
