@@ -25,13 +25,14 @@ from ...infrastructure.llm.retry import ainvoke_with_retries
 from .langchain_compat import StrOutputParser
 from .prompt_builder import TranslationPromptBuilder
 from .semantic_checker import SegmentPair, findings_to_issues
+from .typed_repair import RepairStats, TypedRepairer
 
 logger = logging.getLogger(__name__)
 
 _SEG_RE = re.compile(r'<seg\s+id="?(\d+)"?\s*>(.*?)</seg>', re.DOTALL)
 _SEVERE = {"high", "medium"}
 _UNUSABLE_KINDS = {"structure", "missing", "truncated"}
-_UNCLOSED_TAIL_RE = re.compile(r'<seg\s+id="?\d+"?\s*>(?:(?!</seg>).)*\S(?:(?!</seg>).)*$', re.DOTALL)
+_UNCLOSED_TAIL_RE = re.compile(r'<seg\s+id="?\d+"?\s*>(?:(?!</seg>).)*(?:(?!</seg>)\S)(?:(?!</seg>).)*$', re.DOTALL)
 _LENGTH_STOPS = {"length", "max_tokens", "MAX_TOKENS"}
 _MAX_ROUNDS = 3
 
@@ -210,6 +211,8 @@ class StructuredChunkTranslator:
         self.segment_validator = SegmentValidator(validator, glossary)
         # 语义质检（quality.semantic_check）：None 表示关闭，行为与未接入时一致
         self.semantic_checker = semantic_checker
+        self.repairer = TypedRepairer(llm_checker, prompt_builder, self._invoke)
+        self.repair_stats = RepairStats()  # 本次运行累计，供评测与日志对比
 
     async def translate(
         self, chunk: TextChunk, document_profile: DocumentProfile
@@ -243,38 +246,38 @@ class StructuredChunkTranslator:
             )
 
         repaired = False
+        rejections: dict[int, list[str]] = {}
         if getattr(self.config, "enable_qa_check", True):
-            for _ in range(self.config.max_fix_attempts):
-                failing = [seg for seg in structured.segments if outcomes[seg.local_id].needs_repair]
-                if not failing:
-                    break
-                try:
-                    fixes = await self._repair(failing, outcomes, common)
-                except Exception as exc:  # 审校失败不影响初译
-                    logger.warning("段级审校失败，保留初译并等待人工复核: %s", exc)
-                    break
-                for seg in failing:
-                    if seg.local_id not in fixes:
-                        continue
-                    candidate = self._check(seg, candidates, fixes[seg.local_id])
-                    if _score(candidate.issues) < _score(outcomes[seg.local_id].issues):
-                        outcomes[seg.local_id] = candidate
-                        repaired = True
+            result = await self.repairer.repair(
+                structured.segments,
+                outcomes,
+                candidates,
+                lambda seg, tagged: self._check(seg, candidates, tagged),
+                common,
+                self.config.max_fix_attempts,
+            )
+            repaired, rejections = result.repaired, result.rejections
+            self.repair_stats.merge(result.stats)
 
         # 传带标签文本而非已解码节点：translate_blocks 逆序回填，段落里的 <fn/> 才能取到已译脚注
         replacements: dict[int, str] = {}
         issues: list[QualityIssue] = []
         for seg in structured.segments:
             outcome = outcomes[seg.local_id]
+            # 修复被拒绝、问题仍在的段：写明拒绝原因，标记待人工处理
+            notes = [QualityIssue("repair", "low", note, seg.seg_id) for note in rejections.get(seg.local_id, [])]
             unusable = outcome.inlines is None or any(
                 issue.kind in _UNUSABLE_KINDS and issue.severity == "high" for issue in outcome.issues
             )
             if unusable:
                 issues += [issue for issue in outcome.issues if issue.kind in _UNUSABLE_KINDS]
                 issues.append(QualityIssue("structure", "high", "结构校验未通过，该段保留原文待人工处理", seg.seg_id))
+                issues += notes
                 continue
             replacements[seg.candidate_index] = outcome.tagged
             issues += outcome.issues
+            if outcome.needs_repair:
+                issues += notes
         if self.semantic_checker is not None:
             issues += await self._semantic_issues(structured, outcomes, replacements)
 
@@ -389,23 +392,6 @@ class StructuredChunkTranslator:
         )
         return "\n".join(f"- {en}: {zh}" for en, zh in relevant.items()) or "无"
 
-    async def _repair(self, failing, outcomes, common) -> dict[int, str]:
-        parts = []
-        for seg in failing:
-            outcome = outcomes[seg.local_id]
-            problems = "；".join(issue.message for issue in outcome.issues if issue.severity != "low")
-            parts.append(
-                f"【段 {seg.local_id}】\n原文：{seg.tagged}\n当前译文：{outcome.tagged or '（缺失）'}\n问题：{problems}"
-            )
-        prompt = self.prompt_builder.build_structured_repair_prompt()
-        raw, _, _ = await self._invoke(
-            prompt | self.llm_checker | StrOutputParser(), {**common, "segments": "\n".join(parts)}
-        )
-        return {
-            local_id: re.sub(r"^(?:修正后的?译文|当前译文|译文)[:：]\s*", "", text)
-            for local_id, text in parse_segments(raw).items()
-        }
-
     async def _invoke(self, chain, payload) -> tuple[str, int, float]:
         started = {"at": time.monotonic()}
 
@@ -421,11 +407,6 @@ class StructuredChunkTranslator:
 
 def _seg_id(structured: document_ir.StructuredChunk, local_id: int) -> int:
     return next(seg.seg_id for seg in structured.segments if seg.local_id == local_id)
-
-
-def _score(issues: list[QualityIssue]) -> int:
-    weights = {"high": 100, "medium": 10, "low": 1}
-    return sum(weights.get(issue.severity, 1) for issue in issues)
 
 
 def _prefixed(issue: QualityIssue, structured: document_ir.StructuredChunk) -> QualityIssue:

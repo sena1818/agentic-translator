@@ -106,3 +106,12 @@ translator-qa-bench --records <run>/<书名>.records.json --glossary <术语表>
   **只报告、不触发自动修复，也不决定块是否通过**——它是提示，不是正确性保证，交给人工或审校 agent（#21）分诊。
 - 本阶段的 token、调用次数和耗时单独累计在 `TranslationEngine.semantic_checker.usage`。
 - 已缓存的块不会补跑语义检查；对已有译文开启时需清缓存或重译相关块。
+
+## 10. 修复基准（分类型修复是否"修好一类、新增另一类"）
+
+```bash
+translator-repair-bench --max-fix-attempts 1
+```
+
+用注入基准的段对和脚本化的假模型（翻译员注入错误、审校员偶尔手滑引入新问题），统计被采用的手滑修复、
+修复后仍有问题的段和模型调用次数。改动前后对比见 [typed_repair.md](typed_repair.md)。

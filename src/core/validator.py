@@ -8,6 +8,7 @@ import re
 from dataclasses import dataclass, field
 
 from ..domain.rules.glossary_selection import term_occurs
+from ..domain.rules.typed_repair import no_regression
 
 _SCALES = {"thousand": 1e3, "million": 1e6, "billion": 1e9, "trillion": 1e12}
 
@@ -198,11 +199,11 @@ class TranslationValidator:
         return any(issue.kind in repairable_kinds for issue in report.issues)
 
     def is_better(self, candidate: QualityReport, baseline: QualityReport) -> bool:
-        """候选报告是否优于基线"""
-        severity_score = {"high": 3, "medium": 2, "low": 1}
-        baseline_score = sum(severity_score[issue.severity] for issue in baseline.issues)
-        candidate_score = sum(severity_score[issue.severity] for issue in candidate.issues)
-        return candidate_score <= baseline_score
+        """候选报告是否优于基线：严重问题变少，且没有出现基线里没有的严重问题。
+
+        旧做法按严重度加权求和、持平也接受，修好一类同时引入另一类时分数可能不变甚至更低。
+        """
+        return no_regression(baseline.issues, candidate.issues)
 
     def _check_untranslated_english(self, translation: str) -> list[QualityIssue]:
         issues = []

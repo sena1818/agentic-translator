@@ -217,9 +217,10 @@ def test_lost_formula_is_repaired_by_targeted_review(tmp_path):
     def checker(prompt_value):
         body = prompt_value.to_string().split("【待修复段落】:")[-1]
         out = []
+        assert "【修复类型】只修标签" in prompt_value.to_string()
         for local_id, source in re.findall(r"【段 (\d+)】\n原文：(.*?)\n当前译文", body, re.S):
             repaired_ids.append(local_id)
-            out.append(f'<seg id="{local_id}">修复:{source}</seg>')
+            out.append(f'<seg id="{local_id}">译:{source}</seg>')  # 只把丢掉的公式标签放回，文字不变
         return "\n".join(out)
 
     engine = _engine(tmp_path, translator=_drop_math, checker=checker)
@@ -228,7 +229,7 @@ def test_lost_formula_is_repaired_by_targeted_review(tmp_path):
     assert result.repaired is True
     assert result.quality_report["passed"] is True
     assert len(repaired_ids) == 1  # 只有丢了公式的那一段被送去修复（纯公式的表格单元不是可译段）
-    assert "修复:The decay rate obeys $N(t)" in result.translation
+    assert "译:The decay rate obeys $N(t) = N_0 e^{-\\lambda t}$" in result.translation
 
 
 def test_unrepairable_segment_falls_back_to_source_text(tmp_path):
