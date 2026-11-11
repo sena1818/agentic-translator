@@ -29,6 +29,41 @@ logger = logging.getLogger(__name__)
 
 _SEG_RE = re.compile(r'<seg\s+id="?(\d+)"?\s*>(.*?)</seg>', re.DOTALL)
 _SEVERE = {"high", "medium"}
+_UNUSABLE_KINDS = {"structure", "missing", "truncated"}
+_UNCLOSED_TAIL_RE = re.compile(r'<seg\s+id="?\d+"?\s*>(?:(?!</seg>).)*\S(?:(?!</seg>).)*$', re.DOTALL)
+_LENGTH_STOPS = {"length", "max_tokens", "MAX_TOKENS"}
+_MAX_ROUNDS = 3
+
+
+def response_text(result) -> tuple[str, str | None]:
+    """取出模型回复的文本与结束原因（OpenAI 的 finish_reason、Anthropic 的 stop_reason、Gemini 的 MAX_TOKENS）。"""
+    if isinstance(result, str):
+        return result, None
+    text = StrOutputParser().invoke(result)
+    metadata = getattr(result, "response_metadata", None) or {}
+    reason = metadata.get("finish_reason") or metadata.get("stop_reason")
+    return text, str(reason) if reason is not None else None
+
+
+def looks_truncated(raw: str, finish_reason: str | None) -> bool:
+    """服务端报告达到输出上限，或输出以一个没有闭合的 <seg> 结尾。"""
+    return finish_reason in _LENGTH_STOPS or bool(_UNCLOSED_TAIL_RE.search(raw))
+
+
+def protocol_feedback(raw: str) -> str:
+    """模型没按 <seg> 协议输出时，告诉它上次错在哪里，而不是原样重发。"""
+    stripped = raw.strip()
+    if not stripped:
+        problem = "上次回复是空的"
+    elif "<seg" not in stripped:
+        excerpt = stripped[:80].replace("\n", " ")
+        problem = f'上次回复没有用 <seg id="N">…</seg> 包裹译文（开头是：{excerpt}）'
+    else:
+        problem = "上次回复里的 <seg> 标签写法无法解析"
+    return (
+        f'\n【输出格式提醒】{problem}。这一次请只输出 <seg id="N">译文</seg> 序列：'
+        "每个待翻译段落对应一个，id 与原文相同，不要输出解释、Markdown 代码块或其他内容。\n"
+    )
 
 
 def parse_segments(raw: str) -> dict[int, str]:
@@ -186,28 +221,22 @@ class StructuredChunkTranslator:
             "glossary": glossary_text,
             "section_title": " > ".join(chunk.section_path) if chunk.section_path else chunk.section_title,
         }
-        prompt = self.prompt_builder.build_structured_translation_prompt()
-        payload = {**common, "context": chunk.context_text or "无", "segments": structured.tagged_payload()}
-        outputs: dict[int, str] = {}
-        # 模型偶尔不按 <seg> 协议输出（全书实测 185 块中 1 块，重试即成功）：再请求一次，仍失败才判块失败
-        for _attempt in range(2):
-            raw, retry, duration = await self._invoke(prompt | self.llm_translator | StrOutputParser(), payload)
-            outputs = parse_segments(raw)
-            if outputs:
-                break
-            logger.warning("块 %s 未按 <seg> 协议输出，重试一次；输出开头: %s", chunk.chunk_id, raw.strip()[:120])
-        if not outputs:
-            if not raw.strip():
-                raise ValueError(
-                    "模型返回的正文为空（已重试；推理模型可能把输出上限全部耗在思考上，可调低 api.reasoning_effort，如 none）"
-                )
-            excerpt = raw.strip()[:200].replace("\n", " ")
-            raise ValueError(f"模型未按 <seg> 协议输出（已重试；共 {len(raw)} 字符，开头：{excerpt}）")
+        outputs, truncated, retry, duration = await self._translate_segments(chunk, structured, common)
 
         candidates = list(document_ir.iter_candidates(structured.blocks))
         outcomes = {
             seg.local_id: self._check(seg, candidates, outputs.get(seg.local_id)) for seg in structured.segments
         }
+        for local_id in truncated:
+            outcomes[local_id] = SegmentOutcome(
+                None,
+                None,
+                [
+                    QualityIssue(
+                        "truncated", "high", "模型输出达到长度上限被截断，该段未译出", _seg_id(structured, local_id)
+                    )
+                ],
+            )
 
         repaired = False
         if getattr(self.config, "enable_qa_check", True):
@@ -234,10 +263,10 @@ class StructuredChunkTranslator:
         for seg in structured.segments:
             outcome = outcomes[seg.local_id]
             unusable = outcome.inlines is None or any(
-                issue.kind in {"structure", "missing"} and issue.severity == "high" for issue in outcome.issues
+                issue.kind in _UNUSABLE_KINDS and issue.severity == "high" for issue in outcome.issues
             )
             if unusable:
-                issues += [issue for issue in outcome.issues if issue.kind in {"structure", "missing"}]
+                issues += [issue for issue in outcome.issues if issue.kind in _UNUSABLE_KINDS]
                 issues.append(QualityIssue("structure", "high", "结构校验未通过，该段保留原文待人工处理", seg.seg_id))
                 continue
             replacements[seg.candidate_index] = outcome.tagged
@@ -252,6 +281,71 @@ class StructuredChunkTranslator:
             issues=[_prefixed(issue, structured) for issue in issues],
         )
         return markdown, report, repaired, retry, duration
+
+    async def _translate_segments(self, chunk, structured, common) -> tuple[dict[int, str], set[int], int, float]:
+        """初译整块；返回 (各段输出, 因截断而缺失的段, 重试次数, 耗时)。
+
+        - 模型不按 <seg> 协议输出（全书实测 185 块中 1 块）：带上错误说明再请求一次，仍失败才判块失败。
+        - 输出被长度上限截断：日志写明是截断，只对缺失的段补译，最多补到第 _MAX_ROUNDS 轮。
+        """
+        prompt = self.prompt_builder.build_structured_translation_prompt()
+        outputs: dict[int, str] = {}
+        note = ""
+        protocol_retried = False
+        truncated_ids: set[int] = set()
+        retries, duration = 0, 0.0
+        raw = ""
+        for _ in range(_MAX_ROUNDS):
+            pending = [seg for seg in structured.segments if seg.local_id not in outputs]
+            payload = {
+                **common,
+                "context": chunk.context_text or "无",
+                "retry_note": note,
+                "segments": "\n".join(f'<seg id="{seg.local_id}">{seg.tagged}</seg>' for seg in pending),
+            }
+            result, retry, elapsed = await self._invoke(prompt | self.llm_translator, payload)
+            retries += retry
+            duration += elapsed
+            raw, finish_reason = response_text(result)
+            pending_ids = {seg.local_id for seg in pending}
+            got = {local_id: text for local_id, text in parse_segments(raw).items() if local_id in pending_ids}
+            outputs.update(got)
+            missing = pending_ids - got.keys()
+            if not missing:
+                truncated_ids = set()
+                break
+            if looks_truncated(raw, finish_reason):
+                truncated_ids = missing
+                logger.warning(
+                    "块 %s 输出被截断（finish_reason=%s，%d 字符），缺 %d 段，只补译缺失段",
+                    chunk.chunk_id,
+                    finish_reason,
+                    len(raw),
+                    len(missing),
+                )
+                if not got:
+                    break  # 第一段本身就超出输出上限，原样补译不会有进展
+                note = ""
+                continue
+            truncated_ids = set()
+            if got or protocol_retried:
+                break  # 只缺个别段且不是截断：交给段级质检报"缺失"并修复
+            protocol_retried = True
+            note = protocol_feedback(raw)
+            logger.warning("块 %s 未按 <seg> 协议输出，带说明重试一次；输出开头: %s", chunk.chunk_id, raw.strip()[:120])
+
+        if not outputs:
+            if truncated_ids:
+                raise ValueError(
+                    f"模型输出被长度上限截断，未得到任何完整段（共 {len(raw)} 字符），可调大输出上限或减小块大小"
+                )
+            if not raw.strip():
+                raise ValueError(
+                    "模型返回的正文为空（已重试；推理模型可能把输出上限全部耗在思考上，可调低 api.reasoning_effort，如 none）"
+                )
+            excerpt = raw.strip()[:200].replace("\n", " ")
+            raise ValueError(f"模型未按 <seg> 协议输出（已重试；共 {len(raw)} 字符，开头：{excerpt}）")
+        return outputs, truncated_ids, retries, duration
 
     def _check(self, seg, candidates, tagged):
         if tagged is not None:
@@ -292,6 +386,10 @@ class StructuredChunkTranslator:
             chain, payload, self.config.get("api.translator.max_retries", 3), before_attempt
         )
         return raw, retry, time.monotonic() - started["at"]
+
+
+def _seg_id(structured: document_ir.StructuredChunk, local_id: int) -> int:
+    return next(seg.seg_id for seg in structured.segments if seg.local_id == local_id)
 
 
 def _score(issues: list[QualityIssue]) -> int:

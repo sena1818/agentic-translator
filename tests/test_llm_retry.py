@@ -60,7 +60,23 @@ def test_quota_exhaustion_is_not_retried():
 def test_rate_limit_waits_for_server_hint(no_sleep):
     chain, _ = _flaky([_StatusError(429, "Error code: 429 - Please retry in 7s")])
     asyncio.run(ainvoke_with_retries(chain, {}, max_retries=1))
-    assert no_sleep == [8]
+    assert len(no_sleep) == 1 and 8 <= no_sleep[0] <= 9.6  # 不早于服务端要求，只往后加抖动
+
+
+def test_backoff_is_jittered_so_concurrent_failures_spread_out():
+    delays = {round(retry_module.backoff_delay(3), 6) for _ in range(50)}
+    assert len(delays) > 1
+    assert all(4 <= delay <= 8 for delay in delays)
+    assert all(30 <= retry_module.backoff_delay(10) <= 60 for _ in range(20))  # 有上限
+
+
+def test_concurrent_transient_failures_do_not_retry_in_lockstep(no_sleep):
+    async def run_many():
+        chains = [_flaky([_StatusError(503)])[0] for _ in range(8)]
+        await asyncio.gather(*(ainvoke_with_retries(chain, {}, max_retries=1) for chain in chains))
+
+    asyncio.run(run_many())
+    assert len(no_sleep) == 8 and len(set(no_sleep)) > 1
 
 
 def test_gives_up_after_max_retries():

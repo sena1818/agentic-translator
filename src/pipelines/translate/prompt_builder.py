@@ -151,7 +151,7 @@ class TranslationPromptBuilder:
 
 【标签规则】(最高优先级):
 {_numbered(STRUCTURED_TAG_RULES)}
-
+{{retry_note}}
 【待翻译段落】:
 {{segments}}
 """

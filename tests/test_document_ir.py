@@ -826,3 +826,68 @@ def test_protocol_violation_is_retried_once(tmp_path):
     engine = _engine(tmp_path, translator=flaky)
     _, results = _translate(engine, "A single paragraph to translate.\n", tmp_path)
     assert results[0].success and len(calls) == 2
+
+
+def test_protocol_retry_tells_model_what_went_wrong(tmp_path):
+    prompts = []
+
+    def flaky(prompt_value):
+        prompts.append(prompt_value.to_string())
+        if len(prompts) == 1:
+            return "抱歉，我无法按格式输出。"
+        return _translate_all(prompt_value)
+
+    engine = _engine(tmp_path, translator=flaky)
+    _, results = _translate(engine, "A single paragraph to translate.\n", tmp_path)
+    assert results[0].success and len(prompts) == 2
+    assert "输出格式提醒" not in prompts[0]
+    assert "输出格式提醒" in prompts[1] and "抱歉，我无法按格式输出" in prompts[1]
+
+
+_THREE_PARAS = "First paragraph here.\n\nSecond paragraph here.\n\nThird paragraph here.\n"
+
+
+def test_truncated_output_retranslates_only_missing_segments(tmp_path):
+    requested = []
+
+    def cut_off_once(prompt_value):
+        segments = _segments_from_prompt(prompt_value)
+        requested.append([local_id for local_id, _ in segments])
+        if len(requested) == 1:
+            first_id, first_text = segments[0]
+            second_id, _ = segments[1]
+            return f'<seg id="{first_id}">译:{first_text}</seg>\n<seg id="{second_id}">译:Second par'
+        return _translate_all(prompt_value)
+
+    engine = _engine(tmp_path, translator=cut_off_once)
+    _, results = _translate(engine, _THREE_PARAS, tmp_path)
+    result = results[0]
+    assert result.success and result.quality_report["passed"] is True
+    assert requested == [["1", "2", "3"], ["2", "3"]]
+    assert all(f"译:{word} paragraph" in result.translation for word in ("First", "Second", "Third"))
+
+
+def test_truncation_is_reported_apart_from_missing_segments(tmp_path, caplog):
+    from langchain_core.messages import AIMessage
+
+    def always_truncated(prompt_value):
+        segments = _segments_from_prompt(prompt_value)
+        content = f'<seg id="1">译:{segments[0][1]}</seg>' if segments[0][0] == "1" else ""
+        return AIMessage(content=content, response_metadata={"finish_reason": "length"})
+
+    def skips_last(prompt_value):
+        return "\n".join(f'<seg id="{i}">译:{text}</seg>' for i, text in _segments_from_prompt(prompt_value)[:-1])
+
+    with caplog.at_level("WARNING"):
+        _, truncated = _translate(
+            _engine(tmp_path, translator=always_truncated, checker=lambda p: ""), _THREE_PARAS, tmp_path
+        )
+    kinds = {issue["kind"] for issue in truncated[0].quality_report["issues"]}
+    assert "truncated" in kinds and "missing" not in kinds
+    assert any("截断" in record.getMessage() for record in caplog.records)
+
+    _, skipped = _translate(
+        _engine(tmp_path / "b", translator=skips_last, checker=lambda p: ""), _THREE_PARAS, tmp_path
+    )
+    kinds = {issue["kind"] for issue in skipped[0].quality_report["issues"]}
+    assert "missing" in kinds and "truncated" not in kinds
