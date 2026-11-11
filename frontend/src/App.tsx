@@ -13,6 +13,7 @@ import { getSystemState } from "./services/api";
 
 const GlossaryManager = lazy(() => import("./components/GlossaryManager"));
 const TaskDetail = lazy(() => import("./components/TaskDetail"));
+const ReaderPage = lazy(() => import("./components/ReaderPage"));
 const queryClient = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: false, retry: 1 } },
 });
@@ -96,6 +97,10 @@ export default function App() {
                   <Routes>
                     <Route path="/" element={<TranslationPage />} />
                     <Route path="/tasks/:taskId" element={<TaskDetail />} />
+                    <Route
+                      path="/tasks/:taskId/read"
+                      element={<ReaderPage />}
+                    />
                     <Route path="/glossary" element={<GlossaryManager />} />
                     <Route
                       path="*"

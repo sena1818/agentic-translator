@@ -1,0 +1,36 @@
+name: Demo page
+
+# 发布 docs/demo/site（公版文本的对照阅读器与 EPUB）到 GitHub Pages。
+# 需先在仓库 Settings → Pages 把 Source 设为 "GitHub Actions"。
+on:
+  push:
+    branches: [main]
+    paths: ["docs/demo/site/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/demo/site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

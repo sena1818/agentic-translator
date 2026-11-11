@@ -92,7 +92,7 @@ def _ensure_markdown_variants(task_id: str, bilingual_task: bool, result_dir=Pat
 @router.get("/results/{task_id}")
 async def download_result(
     task_id: str,
-    format: str = Query("md", description="导出格式: md、html 或 zip"),
+    format: str = Query("md", description="导出格式: md、html、epub 或 zip"),
     variant: str = Query("mono", description="结果类型: mono 或 bilingual"),
     inline: bool = Query(False, description="HTML 在浏览器内打开（对照阅读器）而非下载"),
 ):
@@ -105,7 +105,7 @@ async def download_result(
 
     返回: Markdown、HTML 或 ZIP 文件
     """
-    if format not in {"md", "html", "zip"}:
+    if format not in {"md", "html", "epub", "zip"}:
         raise HTTPException(status_code=400, detail="不支持的导出格式")
     if variant not in {"mono", "bilingual"}:
         raise HTTPException(status_code=400, detail="不支持的结果类型")
@@ -120,6 +120,8 @@ async def download_result(
     reader_path = result_dir / f"{task_id}.html"
     if format == "html" and (result_dir / f"{task_id}.structure.json").exists() and reader_path.exists():
         return _reader_response(reader_path, _download_basename(task.filename), inline)
+    if format == "epub":
+        return _epub_response(result_dir, task_id, variant, _download_basename(task.filename))
     if format == "html" and not task.bilingual:
         raise HTTPException(400, "仅双语任务支持 HTML 双栏导出")
     if task and variant == "bilingual" and not task.bilingual:
@@ -193,6 +195,38 @@ def _reader_response(path: Path, base_name: str, inline: bool) -> FileResponse:
         headers=headers,
         content_disposition_type="inline" if inline else "attachment",
     )
+
+
+def _epub_response(result_dir: Path, task_id: str, variant: str, base_name: str) -> FileResponse:
+    """结构化导出时生成的 EPUB；历史任务没有，重新执行后才有。"""
+    suffix = ".bilingual.epub" if variant == "bilingual" else ".epub"
+    path = result_dir / f"{task_id}{suffix}"
+    if not path.exists():
+        raise HTTPException(404, "该任务没有 EPUB 结果，重新执行后生成")
+    return FileResponse(
+        path=path,
+        filename=f"{base_name}{'.bilingual' if variant == 'bilingual' else '.cn'}.epub",
+        media_type="application/epub+zip",
+    )
+
+
+@router.get("/results/{task_id}/structure")
+async def result_structure(task_id: str):
+    """结构化导出统计：段数、失效内链、缺失图片清单、已生成的 EPUB 变体。历史任务返回 404。"""
+    task = await db.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    path = TaskFiles().artifacts(task) / f"{task_id}.structure.json"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="该任务没有结构化导出")
+    stats = json.loads(path.read_text(encoding="utf-8"))
+    return {
+        "task_id": task_id,
+        "segments": stats.get("segments", 0),
+        "dead_links": stats.get("dead_links", []),
+        "missing_images": stats.get("missing_images", []),
+        "epub": stats.get("epub", []),
+    }
 
 
 @router.get("/results/{task_id}/preview")

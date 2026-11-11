@@ -22,8 +22,8 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      - name: Install pandoc (Document IR tests)
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pandoc
+      - name: Install pandoc and epubcheck (Document IR and EPUB tests)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pandoc epubcheck
 
       - name: Install dependencies
         run: pip install -e ".[dev]"

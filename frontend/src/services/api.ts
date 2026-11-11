@@ -116,12 +116,12 @@ export const deleteTask = async (taskId: string): Promise<void> => {
 /**
  * 下载翻译结果
  * @param taskId 任务ID
- * @param format 导出格式: 'md' | 'html' | 'zip'
+ * @param format 导出格式: 'md' | 'html' | 'epub' | 'zip'
  * @param variant 结果类型: 'mono' | 'bilingual'
  */
 export const downloadResult = (
   taskId: string,
-  format: "md" | "html" | "zip" = "md",
+  format: "md" | "html" | "epub" | "zip" = "md",
   variant: "mono" | "bilingual" = "mono",
 ): string => {
   return `${API_BASE_URL}/api/files/results/${taskId}?format=${format}&variant=${variant}`;
@@ -130,6 +130,26 @@ export const downloadResult = (
 /** 结构化导出的双栏对照阅读器：在浏览器内打开（段级双向跳转、目录、脚注浮层）。 */
 export const readerUrl = (taskId: string): string =>
   `${API_BASE_URL}/api/files/results/${taskId}?format=html&inline=true`;
+
+/** 应用内阅读页（Hash 路由，可收藏、刷新后仍停在该页）；seg 为要定位的全书段编号。 */
+export const readerPagePath = (taskId: string, seg?: number): string =>
+  `/tasks/${taskId}/read${seg === undefined ? "" : `?seg=${seg}`}`;
+
+export interface StructureStats {
+  task_id: string;
+  segments: number;
+  dead_links: string[];
+  missing_images: string[];
+  epub: string[];
+}
+
+/** 结构化导出统计（缺失图片清单等）；历史任务没有，返回 404。 */
+export const getStructure = async (taskId: string): Promise<StructureStats> => {
+  const response = await apiClient.get<StructureStats>(
+    `/api/files/results/${taskId}/structure`,
+  );
+  return response.data;
+};
 
 /**
  * 获取双语对照预览（Web 界面内双栏渲染，无需下载）

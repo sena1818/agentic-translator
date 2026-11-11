@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import html
+import json
 
 _CSS = """
 :root {
@@ -135,6 +136,13 @@ _JS = r"""
 (() => {
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+
+  // ---- 图片：两栏共用页面里的同一份数据，按编号填入 ----
+  const imageTable = $('#reader-images');
+  if (imageTable) {
+    const images = JSON.parse(imageTable.textContent);
+    $$('img[data-img]').forEach((img) => { const src = images[img.dataset.img]; if (src) img.src = src; });
+  }
   const body = document.body;
   const panes = { src: $('#pane-src'), tgt: $('#pane-tgt') };
   const narrow = window.matchMedia('(max-width: 860px)');
@@ -351,9 +359,25 @@ def _toc_html(entries: list[dict]) -> str:
     return "\n".join(items)
 
 
-def render_reader_html(title: str, source_html: str, target_html: str, toc: list[dict], stats: dict) -> str:
+def _images_json(images: dict[str, str] | None) -> str:
+    if not images:
+        return ""
+    payload = json.dumps(images, ensure_ascii=False).replace("</", "<" + chr(92) + "/")
+    return f'<script type="application/json" id="reader-images">{payload}</script>' + chr(10)
+
+
+def render_reader_html(
+    title: str,
+    source_html: str,
+    target_html: str,
+    toc: list[dict],
+    stats: dict,
+    images: dict[str, str] | None = None,
+) -> str:
+    """images：编号 → data URI；正文里的 <img data-img="编号"> 由脚本在加载时填上，同一张图只存一份。"""
     issue_count = stats.get("segments_with_issues", 0)
     dead = len(stats.get("dead_links", []))
+    missing_images = stats.get("missing_images") or []
     chips = [f'<span class="chip">{stats.get("segments", 0)} 段</span>']
     if issue_count:
         chips.append(f'<span class="chip warn">{issue_count} 段需复核</span>')
@@ -361,6 +385,9 @@ def render_reader_html(title: str, source_html: str, target_html: str, toc: list
         chips.append(f'<span class="chip danger">{stats["failed_chunks"]} 块翻译失败</span>')
     if dead:
         chips.append(f'<span class="chip danger">{dead} 个内部链接失效</span>')
+    if missing_images:
+        listed = html.escape("、".join(missing_images[:20]), quote=True)
+        chips.append(f'<span class="chip danger" title="{listed}">{len(missing_images)} 张图片缺失</span>')
     return f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -396,7 +423,7 @@ def render_reader_html(title: str, source_html: str, target_html: str, toc: list
 </div>
 <div class="infobar" id="infobar" role="status"><strong id="info-seg"></strong><span id="info-text"></span></div>
 <div class="popover" id="popover" role="dialog" aria-label="脚注"></div>
-<script>{_JS}</script>
+{_images_json(images)}<script>{_JS}</script>
 </body>
 </html>
 """

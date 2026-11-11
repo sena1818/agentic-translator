@@ -12,6 +12,8 @@ import {
   editChunk,
   downloadResult,
   readerUrl,
+  readerPagePath,
+  getStructure,
   errorText,
   assetUrl,
   type ChunkResult,
@@ -117,14 +119,12 @@ function ChunkEditor({
               {issue.segment !== undefined && (
                 <>
                   {" "}
-                  <a
+                  <Link
                     className="issue-locate"
-                    href={`${readerUrl(id)}#seg-${issue.segment}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                    to={readerPagePath(id, issue.segment)}
                   >
                     在对照阅读器中定位
-                  </a>
+                  </Link>
                 </>
               )}
             </li>
@@ -178,7 +178,6 @@ export default function TaskDetail() {
   const client = useQueryClient();
   const [page, setPage] = useState(1);
   const [reviewOnly, setReviewOnly] = useState(false);
-  const [readerOpen, setReaderOpen] = useState(false);
   const task = useQuery({
     queryKey: ["task", id],
     queryFn: () => getTaskStatus(id),
@@ -189,6 +188,12 @@ export default function TaskDetail() {
     queryKey: ["chunks", id, page, task.data?.updated_at],
     queryFn: () => getChunks(id, (page - 1) * 10),
     enabled: !!task.data && !running(task.data.status),
+  });
+  const missingImages = task.data?.quality_summary?.missing_images ?? 0;
+  const structure = useQuery({
+    queryKey: ["structure", id, task.data?.updated_at],
+    queryFn: () => getStructure(id),
+    enabled: missingImages > 0,
   });
   const refresh = () => {
     client.invalidateQueries({ queryKey: ["task", id] });
@@ -332,14 +337,9 @@ export default function TaskDetail() {
         <section className="download-actions" aria-label="下载结果">
           {structured && (
             <>
-              <button
-                type="button"
-                className="btn-dl-html"
-                aria-expanded={readerOpen}
-                onClick={() => setReaderOpen((open) => !open)}
-              >
-                {readerOpen ? "收起对照阅读" : "在页面中对照阅读"}
-              </button>
+              <Link className="btn-dl-html" to={readerPagePath(id)}>
+                对照阅读
+              </Link>
               <a
                 className="btn-outline"
                 href={readerUrl(id)}
@@ -371,19 +371,40 @@ export default function TaskDetail() {
               )}
             </>
           )}
+          {(t.quality_summary.epub ?? 0) >= 1 && (
+            <a className="btn-dl-md" href={downloadResult(id, "epub")}>
+              中文 EPUB
+            </a>
+          )}
+          {(t.quality_summary.epub ?? 0) >= 2 && (
+            <a
+              className="btn-dl-md"
+              href={downloadResult(id, "epub", "bilingual")}
+            >
+              双语 EPUB
+            </a>
+          )}
           <a className="btn-outline" href={downloadResult(id, "zip")}>
             图片资源 ZIP
           </a>
         </section>
       )}
-      {downloadable && structured && readerOpen && (
-        <section className="reader-embed" aria-label="对照阅读">
-          <iframe
-            title="对照阅读器"
-            src={readerUrl(id)}
-            sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
-          />
-        </section>
+      {downloadable && missingImages > 0 && (
+        <div className="alert-banner warn missing-images" role="status">
+          导出时有 {missingImages} 张图片找不到，阅读器和 EPUB 里显示为缺图
+          {!!structure.data?.missing_images.length && (
+            <>
+              ：
+              <ul>
+                {structure.data.missing_images.map((src) => (
+                  <li key={src}>
+                    <code>{src}</code>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
       )}
       {!active && (
         <section className="section">
