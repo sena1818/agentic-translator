@@ -93,6 +93,7 @@ translator-qa-bench --records <run>/<书名>.records.json --glossary <术语表>
 - 注入错误比真实错误规整，召回率是"能否抓住这类已知错误"，不是真实译文的检出率。
 - 每次同时跑 `rules`（规则质检）和 `rules+semantic`（规则 + 语义质检启发式），并给出模型语义检查的
   token 粗估与"只查高风险段"时的召回上限；`--semantic-model` 另调用模型（需要密钥）。
+- 加 `--with-audit` 时另跑 `rules+audit` 与 `rules+semantic+audit` 两列（全书非文字审计，需要 pandoc）。
 
 ## 9. 语义质检（否定、情态、数字角色、漏译）
 
@@ -115,3 +116,9 @@ translator-repair-bench --max-fix-attempts 1
 
 用注入基准的段对和脚本化的假模型（翻译员注入错误、审校员偶尔手滑引入新问题），统计被采用的手滑修复、
 修复后仍有问题的段和模型调用次数。改动前后对比见 [typed_repair.md](typed_repair.md)。
+
+## 11. 全书非文字审计
+
+导出时对整本书运行的确定性审计（图片、公式、代码、表格、脚注尾注、链接、编号引用、图注），区分翻译引入与原文本身的问题，
+不调用模型。规则、注入检出和 Cyclonopedia 全书结果见 [nontext_audit.md](nontext_audit.md)；对已完成的翻译重跑：
+`python scripts/audit_structured.py <源文件.md> <X.records.json> --config <翻译时的配置> --assets <图片目录>`。

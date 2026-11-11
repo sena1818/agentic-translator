@@ -326,6 +326,288 @@
           }
         ],
         "false_positive_examples": []
+      },
+      "rules+audit": {
+        "detector": "rules+audit",
+        "clean_pairs": 36,
+        "false_positives": 0,
+        "false_positive_rate": 0.0,
+        "overall_recall": 0.2941,
+        "by_type": {
+          "negation": {
+            "injected": 10,
+            "detected": 0,
+            "recall": 0.0,
+            "missed_examples": [
+              {
+                "source": "The method does not improve accuracy on the held-out set.",
+                "change": "删去「没有」"
+              },
+              {
+                "source": "We never observed divergence during training.",
+                "change": "删去「从未」"
+              },
+              {
+                "source": "The model cannot recover the original signal without the residual path.",
+                "change": "删去「没有」"
+              }
+            ]
+          },
+          "modality": {
+            "injected": 8,
+            "detected": 0,
+            "recall": 0.0,
+            "missed_examples": [
+              {
+                "source": "The result may suggest a correlation between depth and robustness.",
+                "change": "「可能」改为「必然」"
+              },
+              {
+                "source": "Larger batches might reduce variance, although the effect is small.",
+                "change": "「或许」改为「必定」"
+              },
+              {
+                "source": "The curve appears to flatten after the first epoch.",
+                "change": "「似乎」改为「显然」"
+              }
+            ]
+          },
+          "number_swap": {
+            "injected": 6,
+            "detected": 0,
+            "recall": 0.0,
+            "missed_examples": [
+              {
+                "source": "Accuracy rose from 70 to 80 after fine-tuning.",
+                "change": "70 与 80 互换"
+              },
+              {
+                "source": "The model has 12 layers and 768 hidden units.",
+                "change": "12 与 768 互换"
+              },
+              {
+                "source": "Training took 36 hours on 8 GPUs.",
+                "change": "8 与 36 互换"
+              }
+            ]
+          },
+          "omission": {
+            "injected": 15,
+            "detected": 3,
+            "recall": 0.2,
+            "missed_examples": [
+              {
+                "source": "The model cannot recover the original signal without the residual path.",
+                "change": "删去「模型无法恢复原始信号。」"
+              },
+              {
+                "source": "No single layer explains the behaviour, and the ablation does not change the ranking.",
+                "change": "删去「消融也不改变排名。」"
+              },
+              {
+                "source": "The cult did not survive the war, but its calendar did.",
+                "change": "删去「它的历法却留存了下来。」"
+              }
+            ]
+          },
+          "wrong_term": {
+            "injected": 6,
+            "detected": 6,
+            "recall": 1.0,
+            "missed_examples": []
+          },
+          "link_target": {
+            "injected": 3,
+            "detected": 3,
+            "recall": 1.0,
+            "missed_examples": []
+          },
+          "code_content": {
+            "injected": 3,
+            "detected": 3,
+            "recall": 1.0,
+            "missed_examples": []
+          }
+        },
+        "seed_results": [
+          {
+            "error_type": "negation",
+            "source": "The method does not improve accuracy.",
+            "corrupted": "该方法提高了准确率。",
+            "detected": false,
+            "issues": []
+          },
+          {
+            "error_type": "modality",
+            "source": "The result may suggest a correlation.",
+            "corrupted": "该结果证明了因果关系。",
+            "detected": false,
+            "issues": []
+          },
+          {
+            "error_type": "number_swap",
+            "source": "Accuracy rose from 70 to 80.",
+            "corrupted": "准确率从 80 提升至 70。",
+            "detected": false,
+            "issues": []
+          },
+          {
+            "error_type": "omission",
+            "source": "The method improves accuracy but doubles memory use.",
+            "corrupted": "该方法提高了准确率。",
+            "detected": false,
+            "issues": []
+          },
+          {
+            "error_type": "code_content",
+            "source": "```python\nleft = right + offset\n```",
+            "corrupted": "```python\nright = left + offset\n```",
+            "detected": true,
+            "issues": [
+              "代码不一致：译文缺少 left = right + offset；译文多出或改为 right = left + offset"
+            ]
+          },
+          {
+            "error_type": "link_target",
+            "source": "[Paper](https://example.org/a)",
+            "corrupted": "[论文](https://example.org/b)",
+            "detected": true,
+            "issues": [
+              "链接地址不一致：译文缺少 https://example.org/a；译文多出或改为 https://example.org/b"
+            ]
+          }
+        ],
+        "false_positive_examples": []
+      },
+      "rules+semantic+audit": {
+        "detector": "rules+semantic+audit",
+        "clean_pairs": 36,
+        "false_positives": 0,
+        "false_positive_rate": 0.0,
+        "overall_recall": 0.902,
+        "by_type": {
+          "negation": {
+            "injected": 10,
+            "detected": 10,
+            "recall": 1.0,
+            "missed_examples": []
+          },
+          "modality": {
+            "injected": 8,
+            "detected": 6,
+            "recall": 0.75,
+            "missed_examples": [
+              {
+                "source": "Every submission must include the evaluation script.",
+                "change": "「必须」改为「可以」"
+              },
+              {
+                "source": "The proof shows that the bound always holds for convex losses.",
+                "change": "「总是」改为「有时」"
+              }
+            ]
+          },
+          "number_swap": {
+            "injected": 6,
+            "detected": 3,
+            "recall": 0.5,
+            "missed_examples": [
+              {
+                "source": "The model has 12 layers and 768 hidden units.",
+                "change": "12 与 768 互换"
+              },
+              {
+                "source": "Training took 36 hours on 8 GPUs.",
+                "change": "8 与 36 互换"
+              },
+              {
+                "source": "The sample must be stored below 4 degrees, otherwise it degrades within 2 days.",
+                "change": "4 与 2 互换"
+              }
+            ]
+          },
+          "omission": {
+            "injected": 15,
+            "detected": 15,
+            "recall": 1.0,
+            "missed_examples": []
+          },
+          "wrong_term": {
+            "injected": 6,
+            "detected": 6,
+            "recall": 1.0,
+            "missed_examples": []
+          },
+          "link_target": {
+            "injected": 3,
+            "detected": 3,
+            "recall": 1.0,
+            "missed_examples": []
+          },
+          "code_content": {
+            "injected": 3,
+            "detected": 3,
+            "recall": 1.0,
+            "missed_examples": []
+          }
+        },
+        "seed_results": [
+          {
+            "error_type": "negation",
+            "source": "The method does not improve accuracy.",
+            "corrupted": "该方法提高了准确率。",
+            "detected": true,
+            "issues": [
+              "[语义提示·规则] 否定：原文含否定，译文未见任何否定表达，否定可能被反转或丢失（原文「not」）"
+            ]
+          },
+          {
+            "error_type": "modality",
+            "source": "The result may suggest a correlation.",
+            "corrupted": "该结果证明了因果关系。",
+            "detected": true,
+            "issues": [
+              "[语义提示·规则] 情态强弱：原文是推测/弱化语气，译文出现断言性措辞，论证强度可能被加强（原文「may」 → 译文「证明」）"
+            ]
+          },
+          {
+            "error_type": "number_swap",
+            "source": "Accuracy rose from 70 to 80.",
+            "corrupted": "准确率从 80 提升至 70。",
+            "detected": true,
+            "issues": [
+              "[语义提示·规则] 数字角色：原文 70 在前、80 在后，译文顺序相反，起止或区间可能被写反（原文「from 70 to 80」）"
+            ]
+          },
+          {
+            "error_type": "omission",
+            "source": "The method improves accuracy but doubles memory use.",
+            "corrupted": "该方法提高了准确率。",
+            "detected": true,
+            "issues": [
+              "[语义提示·规则] 漏译：原文有转折/让步，译文未见对应连接词，后半句可能被漏译（原文「but」）"
+            ]
+          },
+          {
+            "error_type": "code_content",
+            "source": "```python\nleft = right + offset\n```",
+            "corrupted": "```python\nright = left + offset\n```",
+            "detected": true,
+            "issues": [
+              "代码不一致：译文缺少 left = right + offset；译文多出或改为 right = left + offset"
+            ]
+          },
+          {
+            "error_type": "link_target",
+            "source": "[Paper](https://example.org/a)",
+            "corrupted": "[论文](https://example.org/b)",
+            "detected": true,
+            "issues": [
+              "链接地址不一致：译文缺少 https://example.org/a；译文多出或改为 https://example.org/b"
+            ]
+          }
+        ],
+        "false_positive_examples": []
       }
     },
     "routing": {

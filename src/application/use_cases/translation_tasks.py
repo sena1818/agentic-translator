@@ -277,6 +277,9 @@ class TranslationService:
             summary["missing_images"] = len(stats.get("missing_images", []))
             # EPUB 变体：1 = 仅译文，2 = 仅译文 + 双语
             summary["epub"] = len(stats.get("epub", []))
+            audit = stats.get("nontext_audit") or {}
+            summary["nontext_issues"] = audit.get("translation_issues", 0)
+            summary["nontext_source_issues"] = audit.get("source_issues", 0)
         return summary
 
     def _render(self, task, directory, results, asset_sources):
@@ -316,6 +319,7 @@ class TranslationService:
 
         from ...infrastructure.document.pandoc import pandoc_available
         from ...pipelines.postprocess.export_service import ExportService
+        from ...pipelines.structure.audit import image_checker
         from ...pipelines.structure.exporter import StructuredExporter
 
         config = self._task_config(task)
@@ -335,6 +339,7 @@ class TranslationService:
                 title=Path(task.filename).stem,
                 bilingual=task.bilingual,
                 image_locator=ExportService.image_locator([*asset_sources, directory / "assets" / task.task_id]),
+                image_exists=image_checker([*asset_sources, directory / "assets" / task.task_id]),
             )
         except Exception:
             logger.warning("结构化导出失败，回落到旧导出: %s", task.task_id, exc_info=True)

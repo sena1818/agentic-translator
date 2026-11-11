@@ -1,7 +1,7 @@
 # 注入错误基准：规则质检与语义质检
 
 - 生成日期：2026-11-12
-- 复现命令：`translator-qa-bench`
+- 复现命令：`translator-qa-bench --with-audit`
 - 检出口径：改坏后的译文报出了原样译文上没有的问题。误报口径：原样段对上报出任何问题。
 - 注入错误比真实错误更规整，召回率只说明质检能否抓住这类已知错误，不是真实译文的检出率。
 - `rules+semantic` 的语义部分默认只有确定性启发式（不调用模型、不花 token）。
@@ -10,28 +10,28 @@
 
 原样段对：36
 
-| 错误类型 | 注入数 | rules 检出 | rules 召回 | rules+semantic 检出 | rules+semantic 召回 |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| 反转否定 | 10 | 0 | 0% | 10 | 100% |
-| 改变情态强弱 | 8 | 0 | 0% | 6 | 75% |
-| 交换数字 | 6 | 0 | 0% | 3 | 50% |
-| 漏译半句 | 15 | 3 | 20% | 15 | 100% |
-| 换错术语 | 6 | 6 | 100% | 6 | 100% |
-| 改链接地址 | 3 | 0 | 0% | 0 | 0% |
-| 改代码内容 | 3 | 0 | 0% | 0 | 0% |
-| **合计** | 51 | 9 | 18% | 40 | 78% |
-| **原样段对误报** | 36 | 0 | 0% | 0 | 0% |
+| 错误类型 | 注入数 | rules 检出 | rules 召回 | rules+semantic 检出 | rules+semantic 召回 | rules+audit 检出 | rules+audit 召回 | rules+semantic+audit 检出 | rules+semantic+audit 召回 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 反转否定 | 10 | 0 | 0% | 10 | 100% | 0 | 0% | 10 | 100% |
+| 改变情态强弱 | 8 | 0 | 0% | 6 | 75% | 0 | 0% | 6 | 75% |
+| 交换数字 | 6 | 0 | 0% | 3 | 50% | 0 | 0% | 3 | 50% |
+| 漏译半句 | 15 | 3 | 20% | 15 | 100% | 3 | 20% | 15 | 100% |
+| 换错术语 | 6 | 6 | 100% | 6 | 100% | 6 | 100% | 6 | 100% |
+| 改链接地址 | 3 | 0 | 0% | 0 | 0% | 3 | 100% | 3 | 100% |
+| 改代码内容 | 3 | 0 | 0% | 0 | 0% | 3 | 100% | 3 | 100% |
+| **合计** | 51 | 9 | 18% | 40 | 78% | 15 | 29% | 46 | 90% |
+| **原样段对误报** | 36 | 0 | 0% | 0 | 0% | 0 | 0% | 0 | 0% |
 
 ### 种子反例
 
-| 类型 | 原文 | 改坏的译文 | rules | rules+semantic |
-| --- | --- | --- | :---: | :---: |
-| 反转否定 | `` The method does not improve accuracy. `` | `` 该方法提高了准确率。 `` | ❌ | ✅ |
-| 改变情态强弱 | `` The result may suggest a correlation. `` | `` 该结果证明了因果关系。 `` | ❌ | ✅ |
-| 交换数字 | `` Accuracy rose from 70 to 80. `` | `` 准确率从 80 提升至 70。 `` | ❌ | ✅ |
-| 漏译半句 | `` The method improves accuracy but doubles memory use. `` | `` 该方法提高了准确率。 `` | ❌ | ✅ |
-| 改代码内容 | `` ```python left = right + offset ``` `` | `` ```python right = left + offset ``` `` | ❌ | ❌ |
-| 改链接地址 | `` [Paper](https://example.org/a) `` | `` [论文](https://example.org/b) `` | ❌ | ❌ |
+| 类型 | 原文 | 改坏的译文 | rules | rules+semantic | rules+audit | rules+semantic+audit |
+| --- | --- | --- | :---: | :---: | :---: | :---: |
+| 反转否定 | `` The method does not improve accuracy. `` | `` 该方法提高了准确率。 `` | ❌ | ✅ | ❌ | ✅ |
+| 改变情态强弱 | `` The result may suggest a correlation. `` | `` 该结果证明了因果关系。 `` | ❌ | ✅ | ❌ | ✅ |
+| 交换数字 | `` Accuracy rose from 70 to 80. `` | `` 准确率从 80 提升至 70。 `` | ❌ | ✅ | ❌ | ✅ |
+| 漏译半句 | `` The method improves accuracy but doubles memory use. `` | `` 该方法提高了准确率。 `` | ❌ | ✅ | ❌ | ✅ |
+| 改代码内容 | `` ```python left = right + offset ``` `` | `` ```python right = left + offset ``` `` | ❌ | ❌ | ✅ | ✅ |
+| 改链接地址 | `` [Paper](https://example.org/a) `` | `` [论文](https://example.org/b) `` | ❌ | ❌ | ✅ | ✅ |
 
 ### 模型语义检查的成本估算（未调用模型，按字符粗估 token）
 

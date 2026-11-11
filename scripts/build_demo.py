@@ -74,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
     if stats["missing_images"] or stats["unaligned_chunks"] or stats["dead_links"]:
         raise SystemExit(f"演示导出不完整：{stats}")
     (out / f"{STEM}.html").replace(out / "index.html")
-    for leftover in (f"{STEM}.md", f"{STEM}.bilingual.md", f"{STEM}.structure.json"):
+    for leftover in (f"{STEM}.md", f"{STEM}.bilingual.md", f"{STEM}.structure.json", f"{STEM}.audit.json"):
         (out / leftover).unlink(missing_ok=True)
     print(f"演示页已生成：{out / 'index.html'}；EPUB：{', '.join(stats['epub'])}")
     return 0

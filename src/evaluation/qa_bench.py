@@ -6,6 +6,7 @@
         --glossary data/glossaries/CPglossary.json        # 另在本地真实译文上统计
     translator-qa-bench --out docs/evals/results          # 同时写 qa_injection.md / .json
     translator-qa-bench --semantic-model                  # 语义检查另调用模型（需要密钥，逐段调用）
+    translator-qa-bench --with-audit                      # 另加非文字审计（#19）的检测器列
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from .injection import (
     ERROR_TYPES,
     BenchmarkReport,
     Detector,
+    audit_detector,
     load_dataset,
     pairs_from_records,
     rule_detector,
@@ -116,7 +118,7 @@ def render_markdown(results: dict[str, dict], command: str) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _detectors(use_model: bool, all_segments: bool) -> dict[str, Detector]:
+def _detectors(use_model: bool, all_segments: bool, with_audit: bool = False) -> dict[str, Detector]:
     rules = rule_detector()
     checker = None
     if use_model:
@@ -127,7 +129,13 @@ def _detectors(use_model: bool, all_segments: bool) -> dict[str, Detector]:
         llm = ChatModelFactory(get_config()).create_semantic_checker()
         checker = SemanticChecker(llm, use_model=True, high_risk_only=not all_segments)
     name = "rules+semantic(model)" if use_model else "rules+semantic"
-    return {"rules": rules, name: combine(rules, semantic_detector(checker))}
+    semantic = combine(rules, semantic_detector(checker))
+    detectors = {"rules": rules, name: semantic}
+    if with_audit:
+        audit = audit_detector()
+        detectors["rules+audit"] = combine(rules, audit)
+        detectors[f"{name}+audit"] = combine(semantic, audit)
+    return detectors
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -139,12 +147,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, help="写出 qa_injection.md 与 qa_injection.json 的目录")
     parser.add_argument("--semantic-model", action="store_true", help="语义检查另调用模型（需要密钥）")
     parser.add_argument("--all-segments", action="store_true", help="与 --semantic-model 搭配：模型检查全部段")
+    parser.add_argument("--with-audit", action="store_true", help="另加全书非文字审计（#19）的检测器列（需要 pandoc）")
     args = parser.parse_args(argv)
 
-    detectors = _detectors(args.semantic_model, args.all_segments)
+    detectors = _detectors(args.semantic_model, args.all_segments, args.with_audit)
     pairs, seeds = load_dataset(json.loads(args.dataset.read_text(encoding="utf-8")))
     datasets = {"自带段对": (pairs, seeds)}
-    command = "translator-qa-bench"
+    command = "translator-qa-bench" + (" --with-audit" if args.with_audit else "")
     if args.records:
         glossary = json.loads(args.glossary.read_text(encoding="utf-8")) if args.glossary else {}
         records = json.loads(args.records.read_text(encoding="utf-8"))
