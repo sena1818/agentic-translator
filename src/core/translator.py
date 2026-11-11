@@ -25,6 +25,7 @@ from ..pipelines.translate.chunk_processing import build_cached_result, cached_p
 from ..pipelines.translate.document_analyzer import DocumentAnalyzer
 from ..pipelines.translate.prompt_builder import TranslationPromptBuilder
 from ..pipelines.translate.quality_pipeline import TranslationQualityPipeline
+from ..pipelines.translate.semantic_checker import SemanticChecker
 from ..pipelines.translate.structured_translation import StructuredChunkTranslator
 from ..pipelines.translate.translation_client import TranslationClient
 from ..utils.config_loader import get_config
@@ -65,6 +66,7 @@ class TranslationEngine:
         self.llm_translator = model_factory.create_translator()
         self.llm_checker = model_factory.create_checker()
         self.llm_analyst = model_factory.create_analyst()
+        self.semantic_checker = self._build_semantic_checker(model_factory)
 
         # 初始化组件
         self.rate_limiter = RateLimiter(rate=self.config.rate_limit, per=60)
@@ -118,6 +120,7 @@ class TranslationEngine:
             clean_output=self.clean_output,
             glossary=self.glossary,
             validator=self.validator,
+            semantic_checker=self.semantic_checker,
         )
         # 结构化模式（Document IR）：结构由程序持有，LLM 只翻译带内联标签的段。
         # 需要 pandoc；不可用或解析失败时自动回落到传统 Markdown 分块。
@@ -128,6 +131,16 @@ class TranslationEngine:
             build_cache_key=self._build_cache_key,
         )
         self.engine_name = (engine or self.config.engine or "native").lower()
+
+    def _build_semantic_checker(self, model_factory):
+        """quality.semantic_check 关闭时返回 None；开启模型检查时优先用工厂提供的异源语义检查模型。"""
+        if not self.config.get("quality.semantic_check.enabled", False):
+            return None
+        llm = None
+        if self.config.get("quality.semantic_check.use_model", False):
+            create = getattr(model_factory, "create_semantic_checker", None)
+            llm = create() if create else self.llm_checker
+        return SemanticChecker.from_config(self.config, llm, before_call=lambda: self.rate_limiter.acquire())
 
     def plan_chunks(self, text: str) -> list[TextChunk]:
         """结构化切块；启用 Document IR 时按 AST 单元切块。"""

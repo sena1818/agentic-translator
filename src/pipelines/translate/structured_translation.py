@@ -24,6 +24,7 @@ from ...infrastructure.document import pandoc
 from ...infrastructure.llm.retry import ainvoke_with_retries
 from .langchain_compat import StrOutputParser
 from .prompt_builder import TranslationPromptBuilder
+from .semantic_checker import SegmentPair, findings_to_issues
 
 logger = logging.getLogger(__name__)
 
@@ -197,6 +198,7 @@ class StructuredChunkTranslator:
         clean_output,
         glossary: dict[str, str],
         validator: TranslationValidator,
+        semantic_checker=None,
     ):
         self.llm_translator = llm_translator
         self.llm_checker = llm_checker
@@ -206,6 +208,8 @@ class StructuredChunkTranslator:
         self.clean_output = clean_output
         self.glossary = glossary
         self.segment_validator = SegmentValidator(validator, glossary)
+        # 语义质检（quality.semantic_check）：None 表示关闭，行为与未接入时一致
+        self.semantic_checker = semantic_checker
 
     async def translate(
         self, chunk: TextChunk, document_profile: DocumentProfile
@@ -271,13 +275,16 @@ class StructuredChunkTranslator:
                 continue
             replacements[seg.candidate_index] = outcome.tagged
             issues += outcome.issues
+        if self.semantic_checker is not None:
+            issues += await self._semantic_issues(structured, outcomes, replacements)
 
         translated_blocks = document_ir.translate_blocks(structured.blocks, replacements)
         markdown = await asyncio.to_thread(
             pandoc.blocks_to_markdown, {"pandoc-api-version": structured.pandoc_api}, translated_blocks
         )
         report = QualityReport(
-            passed=not any(issue.severity in _SEVERE for issue in issues),
+            # 语义提示只报告、不决定是否通过（它不是确定性结论，交给人工或审校 agent 分诊）
+            passed=not any(issue.severity in _SEVERE and issue.kind != "semantic" for issue in issues),
             issues=[_prefixed(issue, structured) for issue in issues],
         )
         return markdown, report, repaired, retry, duration
@@ -346,6 +353,30 @@ class StructuredChunkTranslator:
             excerpt = raw.strip()[:200].replace("\n", " ")
             raise ValueError(f"模型未按 <seg> 协议输出（已重试；共 {len(raw)} 字符，开头：{excerpt}）")
         return outputs, truncated_ids, retries, duration
+
+    async def _semantic_issues(self, structured, outcomes, replacements) -> list[QualityIssue]:
+        """对最终采用的译文做语义检查（在段级修复之后，只报告不修复）。"""
+        checked = [
+            seg
+            for seg in structured.segments
+            if seg.candidate_index in replacements and outcomes[seg.local_id].inlines is not None
+        ]
+        if not checked:
+            return []
+        # 送模型用块内段号（与翻译提示一致，从 1 开始），报告里换回全书段号
+        pairs = [
+            SegmentPair(seg.local_id, seg.plain, inline_codec.plain_text(outcomes[seg.local_id].inlines))
+            for seg in checked
+        ]
+        try:
+            result = await self.semantic_checker.check(pairs)
+        except Exception as exc:  # 语义检查失败不影响译文
+            logger.warning("语义检查失败，跳过: %s", exc)
+            return []
+        issues = []
+        for seg in checked:
+            issues += findings_to_issues(result.findings.get(seg.local_id, []), seg.seg_id)
+        return issues
 
     def _check(self, seg, candidates, tagged):
         if tagged is not None:

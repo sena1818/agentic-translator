@@ -77,7 +77,7 @@ LangGraph 与 Native 两引擎共用同一批组件（prompt_builder / translati
 旧做法在整块译文上求公共子串，两块里碰巧有同一句无关的话就会造成假一致。
 这仍是启发式指标（同一句里另一个重复短语的译法也可能成为签名），不能单独作为架构决策依据。
 
-## 8. 注入错误基准（规则质检的召回率与误报率）
+## 8. 注入错误基准（质检的召回率与误报率）
 
 不需要密钥、不需要人工标注：取正确的段对，用程序把译文改坏成七类已知错误（反转否定、改变情态强弱、
 交换数字、漏译半句、换错术语、改链接地址、改代码内容），统计质检报出新增问题的比例；
@@ -91,3 +91,18 @@ translator-qa-bench --records <run>/<书名>.records.json --glossary <术语表>
 - 自带段对在 `datasets/injection_pairs.json`（自撰，不含版权文本）。种子反例来自 `translation-quality-deepening.md`。
 - 当前规则质检的基线数字见 [qa_baseline.md](qa_baseline.md)；之后改质检（#14、#19、#20）都以这里的召回率和误报率为验收。
 - 注入错误比真实错误规整，召回率是"能否抓住这类已知错误"，不是真实译文的检出率。
+- 每次同时跑 `rules`（规则质检）和 `rules+semantic`（规则 + 语义质检启发式），并给出模型语义检查的
+  token 粗估与"只查高风险段"时的召回上限；`--semantic-model` 另调用模型（需要密钥）。
+
+## 9. 语义质检（否定、情态、数字角色、漏译）
+
+配置在 `config/config.yaml` 的 `quality.semantic_check`，默认关闭，关闭时流程与未接入时一致。
+
+- **启发式**（`src/domain/rules/semantic_signals.py`）：全量段落都跑，不花 token。
+- **模型检查**（`use_model: true`，`src/pipelines/translate/semantic_checker.py`）：按批送模型，结构化输出
+  原文片段、译文片段、类型、严重度、理由，允许"无法判定"；`high_risk_only` 只送含否定/情态/数字/长句的段；
+  `model`/`base_url`/`api_key_env` 可指定与翻译员异源的模型，留空则复用审校模型。
+- 在段级修复之后运行，结论以 `kind="semantic"` 的问题写入质检报告，消息前缀"语义提示·规则/模型"；
+  **只报告、不触发自动修复，也不决定块是否通过**——它是提示，不是正确性保证，交给人工或审校 agent（#21）分诊。
+- 本阶段的 token、调用次数和耗时单独累计在 `TranslationEngine.semantic_checker.usage`。
+- 已缓存的块不会补跑语义检查；对已有译文开启时需清缓存或重译相关块。
