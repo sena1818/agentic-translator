@@ -5,6 +5,7 @@ LLM 模型工厂
 from __future__ import annotations
 
 import logging
+import os
 
 from langchain_core.runnables import RunnableLambda
 
@@ -96,3 +97,22 @@ class ChatModelFactory:
 
     def create_analyst(self):
         return self._traced(self._models(self.config.analyst_temperature), "analyst")
+
+    def create_semantic_checker(self):
+        """语义质检模型：配置了 quality.semantic_check.model 时用它（最好与翻译员异源），否则复用审校模型。"""
+        model_name = self.config.get("quality.semantic_check.model")
+        if not model_name:
+            return self.create_checker()
+        key_env = self.config.get("quality.semantic_check.api_key_env")
+        options = {
+            "model": model_name,
+            "temperature": 0.0,
+            "api_key": os.environ.get(key_env) if key_env else self.config.api_key,
+            "base_url": self.config.get("quality.semantic_check.base_url") or self.config.api_base_url,
+            "timeout": float(self.config.get("concurrency.request_timeout", 60)),
+            "max_retries": 0,
+        }
+        model = _ChatOpenAI(**options)
+        if self._callbacks:
+            model = model.with_config({"callbacks": self._callbacks, "run_name": "semantic_checker"})
+        return model

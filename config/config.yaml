@@ -76,6 +76,16 @@ quality:
     - "terminology"  # 术语一致性
     - "untranslated"  # 未翻译检测
     - "format"  # 格式保留
+  # 语义质检：否定、情态强弱、数字角色、漏译/增译（issue #20）。结论是提示，只报告不触发修复。
+  semantic_check:
+    enabled: false          # 关闭时行为与未接入时一致
+    use_model: false        # false 只跑确定性启发式（不花 token）；true 另用模型逐段检查
+    high_risk_only: true    # 模型只查含否定/情态/数字/长句的段
+    batch_size: 12          # 每次调用送检的段数
+    # 优先使用与翻译员不同来源的模型；留空则复用 checker 模型
+    model: null
+    base_url: null
+    api_key_env: null       # 存放该模型密钥的环境变量名
 
 # Worker 队列配置
 worker:

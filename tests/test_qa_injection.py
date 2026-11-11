@@ -88,6 +88,12 @@ def test_cli_runs_without_keys_and_writes_reports(tmp_path, capsys):
     assert main(["--out", str(tmp_path)]) == 0
     assert "召回率" in capsys.readouterr().out
     payload = json.loads((tmp_path / "qa_injection.json").read_text(encoding="utf-8"))
-    assert set(payload["自带段对"]["by_type"]) == set(injection.ERROR_TYPES)
+    detectors = payload["自带段对"]["detectors"]
+    assert set(detectors) == {"rules", "rules+semantic"}
+    assert set(detectors["rules"]["by_type"]) == set(injection.ERROR_TYPES)
+    # 语义启发式在规则之上提高召回，且不在自带的正确段对上制造误报
+    assert detectors["rules+semantic"]["overall_recall"] > detectors["rules"]["overall_recall"]
+    assert detectors["rules+semantic"]["false_positives"] == 0
+    assert payload["自带段对"]["routing"]["high_risk_segments"] <= payload["自带段对"]["routing"]["segments"]
     assert (tmp_path / "qa_injection.md").exists()
     assert len(inject_all([Pair("It may not work.", "它可能不起作用。")])) == 2
