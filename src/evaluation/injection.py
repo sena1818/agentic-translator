@@ -400,3 +400,36 @@ def rule_detector(validator=None) -> Detector:
         return {(issue.kind, issue.message) for issue in validator.validate(source, translation, glossary).issues}
 
     return detect
+
+
+def audit_detector() -> Detector:
+    """全书非文字审计（#19）作为检测器：把段对解析成 AST 后比对图片、公式、代码、表格、脚注、链接与编号引用。
+
+    只计翻译引入的问题；需要 pandoc。
+    """
+    import functools
+    import json
+
+    from ..domain.document.nontext_audit import AuditUnit, audit_document
+    from ..infrastructure.document import pandoc
+
+    @functools.lru_cache(maxsize=4096)
+    def parse(text: str) -> str:
+        return json.dumps(pandoc.markdown_to_ast(text)["blocks"])
+
+    def detect(source: str, translation: str, glossary: dict[str, str]) -> set[tuple[str, str]]:
+        source_blocks, target_blocks = json.loads(parse(source)), json.loads(parse(translation))
+        report = audit_document([AuditUnit(source_blocks, target_blocks)], source_blocks, target_blocks)
+        return {(f"audit:{f.kind}", f.message) for f in report.by_origin("translation")}
+
+    return detect
+
+
+def combined_detector(*detectors: Detector) -> Detector:
+    def detect(source: str, translation: str, glossary: dict[str, str]) -> set[tuple[str, str]]:
+        found: set[tuple[str, str]] = set()
+        for detector in detectors:
+            found |= detector(source, translation, glossary)
+        return found
+
+    return detect

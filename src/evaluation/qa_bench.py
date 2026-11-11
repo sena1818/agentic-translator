@@ -18,6 +18,8 @@ from .injection import (
     ERROR_LABELS,
     ERROR_TYPES,
     BenchmarkReport,
+    audit_detector,
+    combined_detector,
     load_dataset,
     pairs_from_records,
     rule_detector,
@@ -34,9 +36,9 @@ def _code(text: str) -> str:
     return "`` " + text.replace("|", "\\|") + " ``"
 
 
-def render_markdown(reports: dict[str, BenchmarkReport], command: str) -> str:
+def render_markdown(reports: dict[str, BenchmarkReport], command: str, title: str = "规则质检") -> str:
     lines = [
-        "# 注入错误基准：规则质检",
+        f"# 注入错误基准：{title}",
         "",
         f"- 生成日期：{date.today().isoformat()}",
         f"- 复现命令：`{command}`",
@@ -81,25 +83,28 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--records", type=Path, help="结构化翻译输出的 records.json，在本地真实译文上另跑一组")
     parser.add_argument("--glossary", type=Path, help="与 --records 搭配的术语表 JSON")
     parser.add_argument("--out", type=Path, help="写出 qa_injection.md 与 qa_injection.json 的目录")
+    parser.add_argument("--with-audit", action="store_true", help="检测器加上全书非文字审计（需要 pandoc）")
     args = parser.parse_args(argv)
 
-    detector = rule_detector()
+    detector = combined_detector(rule_detector(), audit_detector()) if args.with_audit else rule_detector()
+    title = "规则质检 + 非文字审计" if args.with_audit else "规则质检"
     pairs, seeds = load_dataset(json.loads(args.dataset.read_text(encoding="utf-8")))
     reports = {"自带段对": run_benchmark(pairs, detector, seed_cases=seeds)}
-    command = "translator-qa-bench"
+    command = "translator-qa-bench" + (" --with-audit" if args.with_audit else "")
     if args.records:
         glossary = json.loads(args.glossary.read_text(encoding="utf-8")) if args.glossary else {}
         records = json.loads(args.records.read_text(encoding="utf-8"))
         reports[f"本地真实译文（{args.records.name}）"] = run_benchmark(pairs_from_records(records, glossary), detector)
         command += f" --records {args.records.name}" + (f" --glossary {args.glossary.name}" if args.glossary else "")
 
-    markdown = render_markdown(reports, command)
+    markdown = render_markdown(reports, command, title)
     print(markdown)
     if args.out:
         args.out.mkdir(parents=True, exist_ok=True)
-        (args.out / "qa_injection.md").write_text(markdown, encoding="utf-8")
+        stem = "qa_injection_audit" if args.with_audit else "qa_injection"
+        (args.out / f"{stem}.md").write_text(markdown, encoding="utf-8")
         payload = {name: report.as_dict() for name, report in reports.items()}
-        (args.out / "qa_injection.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        (args.out / f"{stem}.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return 0
 
 

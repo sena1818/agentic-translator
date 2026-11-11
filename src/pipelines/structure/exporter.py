@@ -18,6 +18,7 @@ from pathlib import Path
 
 from ...domain.document import document_ir, inline_codec
 from ...infrastructure.document import pandoc
+from .audit import attach_to_segments, run_audit
 from .endnotes import find_endnote_sections, link_endnotes
 from .html_template import render_reader_html
 from .planner import StructuredDocumentPlanner, StructuredPlan
@@ -213,20 +214,27 @@ class StructuredExporter:
         title: str,
         bilingual: bool = True,
         image_resolver: Callable[[str], str] | None = None,
+        image_exists: Callable[[str], bool] | None = None,
     ) -> dict | None:
-        """写出 `{stem}.md`、`{stem}.bilingual.md`（可选）、`{stem}.html` 与结构统计；不可用时返回 None。"""
+        """写出 `{stem}.md`、`{stem}.bilingual.md`（可选）、`{stem}.html`、结构统计与非文字审计；不可用时返回 None。"""
         document = self.assemble(source_text, records)
         if document is None:
             return None
+        audit = run_audit(document, image_exists)
+        attach_to_segments(document, audit)
         output_dir.mkdir(parents=True, exist_ok=True)
         (output_dir / f"{stem}.md").write_text(self.mono_markdown(document), encoding="utf-8")
         if bilingual:
             (output_dir / f"{stem}.bilingual.md").write_text(self.bilingual_markdown(document), encoding="utf-8")
         (output_dir / f"{stem}.html").write_text(self.reader_html(document, title, image_resolver), encoding="utf-8")
-        (output_dir / f"{stem}.structure.json").write_text(
-            json.dumps(document.stats, ensure_ascii=False, indent=2), encoding="utf-8"
+        (output_dir / f"{stem}.audit.json").write_text(
+            json.dumps(audit.as_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
         )
-        return document.stats
+        stats = {**document.stats, "nontext_audit": audit.summary}
+        (output_dir / f"{stem}.structure.json").write_text(
+            json.dumps(stats, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        return stats
 
 
 # ---------------------------------------------------------------------- #

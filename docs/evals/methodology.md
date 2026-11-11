@@ -91,3 +91,10 @@ translator-qa-bench --records <run>/<书名>.records.json --glossary <术语表>
 - 自带段对在 `datasets/injection_pairs.json`（自撰，不含版权文本）。种子反例来自 `translation-quality-deepening.md`。
 - 当前规则质检的基线数字见 [qa_baseline.md](qa_baseline.md)；之后改质检（#14、#19、#20）都以这里的召回率和误报率为验收。
 - 注入错误比真实错误规整，召回率是"能否抓住这类已知错误"，不是真实译文的检出率。
+- 检测器可加上全书非文字审计：`translator-qa-bench --with-audit`（结果写到 `results/qa_injection_audit.*`）。
+
+## 9. 全书非文字审计
+
+导出时对整本书运行的确定性审计（图片、公式、代码、表格、脚注尾注、链接、编号引用、图注），区分翻译引入与原文本身的问题，
+不调用模型。规则、注入检出和 Cyclonopedia 全书结果见 [nontext_audit.md](nontext_audit.md)；对已完成的翻译重跑：
+`python scripts/audit_structured.py <源文件.md> <X.records.json> --config <翻译时的配置> --assets <图片目录>`。
