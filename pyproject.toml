@@ -47,6 +47,7 @@ translator-eval = "src.evaluation.cli:main"
 translator-qa-bench = "src.evaluation.qa_bench:main"
 translator-repair-bench = "src.evaluation.repair_bench:main"
 translator-term-bench = "src.evaluation.term_bench:main"
+translator-reading-bench = "src.evaluation.reading_bench:main"
 
 [tool.setuptools]
 py-modules = ["translate"]

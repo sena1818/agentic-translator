@@ -1,0 +1,28 @@
+{
+  "model_used": false,
+  "full_notes": true,
+  "chapters": 39,
+  "usage": {
+    "chapters": 39,
+    "calls": 39,
+    "cached_chapters": 0,
+    "failed_chapters": 0,
+    "invalid_notes": 0,
+    "prompt_chars": 783073,
+    "estimated_prompt_tokens": 268321,
+    "reported_tokens": 0,
+    "max_state_chars": 4000,
+    "seconds": 0.78
+  },
+  "estimated_output_tokens": 13650,
+  "estimated_total_tokens": 281971,
+  "concepts": 0,
+  "profile": {
+    "summary": "全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括全书概括",
+    "overview_lines": 13,
+    "term_hints": 5,
+    "prompt_chars": 1149,
+    "prompt_tokens": 915,
+    "chunks": 242
+  }
+}
