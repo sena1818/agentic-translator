@@ -89,6 +89,9 @@ def summarize_decided(outcomes: Sequence[AgentOutcome], max_lines: int = 20, lin
     return "\n".join(lines)
 
 
+MODEL_ERROR = "model_error"  # 模型调用重试用尽仍失败；这类转人工不落盘，重跑时再试
+
+
 class AgentRunner:
     def __init__(
         self,
@@ -153,7 +156,13 @@ class AgentRunner:
                 return finish("handoff", reason="budget:tokens")
 
             messages = context.messages()
-            reply = await self.model(messages, metadata={"agent": self.name, "item": item.item_id, "step": steps + 1})
+            try:
+                reply = await self.model(
+                    messages, metadata={"agent": self.name, "item": item.item_id, "step": steps + 1}
+                )
+            except Exception as exc:  # 重试用尽仍失败：只放弃这一条，其余条目照常运行
+                self._record(item.item_id, steps, "model_error", error=f"{type(exc).__name__}: {exc}")
+                return finish("handoff", reason=f"{MODEL_ERROR}: {type(exc).__name__}: {str(exc)[:200]}")
             steps += 1
             used = reply.tokens or (
                 estimate_tokens("".join(m["content"] for m in messages)) + estimate_tokens(reply.text)
@@ -259,7 +268,7 @@ class AgentRunner:
                 outcomes.append(done[item.item_id])
                 continue
             outcome = await self.run(item, summarize(outcomes))
-            if checkpoint is not None:
+            if checkpoint is not None and not outcome.reason.startswith(MODEL_ERROR):
                 checkpoint.save(outcome.to_dict())
             outcomes.append(outcome)
         return outcomes

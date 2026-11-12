@@ -30,6 +30,7 @@ from ...domain.review.triage import (
     summarize,
 )
 from ...infrastructure.agent import AgentBudget, AgentItem, AgentRunner, ChatModel, Checkpoint, ToolRegistry
+from ...infrastructure.agent.runner import MODEL_ERROR
 from ...infrastructure.agent.trace import Tracer
 from .session import ReviewSession
 from .workspace import ReviewWorkspace
@@ -172,7 +173,7 @@ class ReviewAgent:
             else:
                 sent += 1
                 result = await self._run_one(runner, session, issue, current, results, task_id)
-            if checkpoint is not None:
+            if checkpoint is not None and not result.reason.startswith(MODEL_ERROR):
                 checkpoint.save({"item_id": issue.issue_id, **result.to_dict()})
             results.append(result)
         return TriageRun(results, time.monotonic() - started)

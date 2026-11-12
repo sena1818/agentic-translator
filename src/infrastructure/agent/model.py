@@ -20,6 +20,8 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+from ..llm.retry import is_retryable, wait_before_retry
+
 Message = dict[str, str]  # {"role": "system" | "user" | "assistant", "content": "..."}
 
 
@@ -118,10 +120,11 @@ class RunnableChatModel:
     agent 的每一步就和翻译调用一样出现在 Langfuse 追踪与 token 统计里。
     """
 
-    def __init__(self, runnable, callbacks: list | None = None, run_name: str = "agent-step"):
+    def __init__(self, runnable, callbacks: list | None = None, run_name: str = "agent-step", max_retries: int = 3):
         self.runnable = runnable
         self.callbacks = list(callbacks or [])
         self.run_name = run_name
+        self.max_retries = max_retries
 
     async def __call__(self, messages: Sequence[Message], *, metadata: dict | None = None) -> ModelReply:
         from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -129,7 +132,7 @@ class RunnableChatModel:
         kinds = {"system": SystemMessage, "user": HumanMessage, "assistant": AIMessage}
         converted = [kinds[message["role"]](content=message["content"]) for message in messages]
         config = {"callbacks": self.callbacks, "metadata": dict(metadata or {}), "run_name": self.run_name}
-        result = await self.runnable.ainvoke(converted, config=config)
+        result = await self._invoke(converted, config)
         if isinstance(result, str):
             return ModelReply(result)
         content = getattr(result, "content", result)
@@ -137,3 +140,14 @@ class RunnableChatModel:
             content = "".join(part.get("text", "") if isinstance(part, dict) else str(part) for part in content)
         usage = getattr(result, "usage_metadata", None) or {}
         return ModelReply(str(content), int(usage["total_tokens"]) if usage.get("total_tokens") else None)
+
+    async def _invoke(self, messages, config):
+        """限流、5xx 等可恢复错误按翻译调用同一套退避重试；用尽后抛出，由运行框架把该条目转人工。"""
+        for attempt in range(self.max_retries + 1):
+            try:
+                return await self.runnable.ainvoke(messages, config=config)
+            except Exception as exc:
+                if not is_retryable(exc) or attempt >= self.max_retries:
+                    raise
+                await wait_before_retry(exc, attempt)
+        raise RuntimeError("unreachable")

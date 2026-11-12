@@ -272,9 +272,9 @@ def test_rerun_after_interruption_skips_completed_items(tmp_path):
         raise ConnectionError("网络中断")
 
     first = ScriptedModel([tool("lookup", {"term": "A"}), submit("甲", ["E1"]), crash])
-    with pytest.raises(ConnectionError):
-        asyncio.run(AgentRunner(first, registry, instructions="x").run_items(items, checkpoint))
-    assert list(checkpoint.load()) == ["a"]
+    outcomes = asyncio.run(AgentRunner(first, registry, instructions="x").run_items(items, checkpoint))
+    assert [o.status for o in outcomes] == ["submitted", "handoff", "handoff"]
+    assert list(checkpoint.load()) == ["a"]  # 模型出错转人工的条目不落盘，重跑时再试
 
     second = ScriptedModel(
         [tool("lookup", {"term": "B"}), submit("乙", ["E1"]), tool("lookup", {"term": "C"}), submit("丙", ["E1"])]
@@ -351,3 +351,56 @@ def test_langchain_chat_model_adapter_reports_tokens_and_feeds_callbacks():
     result = asyncio.run(model([{"role": "system", "content": "s"}, {"role": "user", "content": "u"}]))
     assert isinstance(result, ModelReply) and result.tokens == 42 and '"submit"' in result.text
     assert collector.snapshot.call_count == 1
+
+
+class RateLimited(Exception):
+    status_code = 429
+
+
+class FlakyRunnable:
+    """前几次抛限流错误，之后返回固定回复。"""
+
+    def __init__(self, failures, reply):
+        self.failures = failures
+        self.reply = reply
+        self.calls = 0
+
+    async def ainvoke(self, messages, config=None):
+        self.calls += 1
+        if self.calls <= self.failures:
+            raise RateLimited("Error code: 429 - 请求过于频繁")
+        return self.reply
+
+
+@pytest.fixture
+def no_wait(monkeypatch):
+    async def instant(exc, attempt):
+        return None
+
+    monkeypatch.setattr("src.infrastructure.agent.model.wait_before_retry", instant)
+
+
+def test_chat_model_adapter_retries_transient_errors(no_wait):
+    runnable = FlakyRunnable(2, submit("使命", ["E1"]))
+    result = asyncio.run(RunnableChatModel(runnable, max_retries=3)([{"role": "user", "content": "u"}]))
+    assert runnable.calls == 3 and '"submit"' in result.text
+
+
+def test_chat_model_adapter_gives_up_after_max_retries(no_wait):
+    runnable = FlakyRunnable(5, submit("使命", ["E1"]))
+    with pytest.raises(RateLimited):
+        asyncio.run(RunnableChatModel(runnable, max_retries=2)([{"role": "user", "content": "u"}]))
+    assert runnable.calls == 3
+
+
+class BrokenModel:
+    async def __call__(self, messages, *, metadata=None):
+        raise RuntimeError("服务不可用")
+
+
+def test_model_failure_hands_off_the_item_instead_of_aborting_the_run():
+    registry, _ = make_registry()
+    runner = AgentRunner(BrokenModel(), registry, instructions="定译名")
+    outcomes = asyncio.run(runner.run_items([AgentItem("a", "Mission"), AgentItem("b", "Axis")]))
+    assert [o.status for o in outcomes] == ["handoff", "handoff"]
+    assert all(o.reason.startswith("model_error") for o in outcomes)
