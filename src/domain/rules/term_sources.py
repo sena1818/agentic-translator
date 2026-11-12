@@ -27,8 +27,9 @@ from .term_candidates import TermCandidate, extract_term_candidates
 PROPER = "proper"
 KEYNESS = "keyness"
 STRUCTURE = "structure"
-ALL_SOURCES = (PROPER, KEYNESS, STRUCTURE)
-SOURCE_LABELS = {PROPER: "专名", KEYNESS: "关键度", STRUCTURE: "强调/引号/标题"}
+READING = "reading"  # 阅读遍（#17）记下的概念与特殊用词；只在阅读遍开启并传入时出现
+ALL_SOURCES = (PROPER, KEYNESS, STRUCTURE, READING)
+SOURCE_LABELS = {PROPER: "专名", KEYNESS: "关键度", STRUCTURE: "强调/引号/标题", READING: "阅读遍笔记"}
 
 MIXED_CASE = "mixed_case"
 SENTENCE_INITIAL = "sentence_initial"
@@ -64,7 +65,8 @@ class SourceConfig:
     max_proper: int = 120
     max_keyness: int = 80
     max_structure: int = 40
-    max_terms: int = 240  # 合并后的总上限
+    max_terms: int = 240  # 合并后的总上限（阅读遍一路另有配额，不占这个上限）
+    max_reading: int = 60  # 阅读遍一路：前几路之外最多补 N 条
     contexts: int = 3  # 每个候选附的上下文数；有歧义的多给一处（上限 5）
     context_chars: int = 70  # 每处上下文在命中词两侧各取的字符数
     sources: tuple[str, ...] = ALL_SOURCES
@@ -429,11 +431,13 @@ def gather_candidates(
     config: SourceConfig | None = None,
     zipf: Zipf | None = None,
     with_renderings: bool = True,
+    reading: Sequence[tuple[str, int]] | None = None,
 ) -> list[TermCandidate]:
     """三路候选合并、排序、截断，并为每个候选附多处上下文与歧义信号。
 
     text：用于专名抽取的原文（含 Markdown 的全文；不给时用索引段拼接）。
     cues：structure_cues() 的结果；没有 Document IR 时不给，结构一路跳过。
+    reading：阅读遍笔记里的 (原文写法, 次数)；不给（阅读遍关闭）时这一路跳过，结果与旧版一致。
     顺序与配额：先是专名一路（与旧做法同一列表，保证不回退），再按强度补关键度一路的新词、
     按正文次数补结构一路的新词；同一个词被多路命中时合并来源标记，不重复占配额。
     """
@@ -446,14 +450,14 @@ def gather_candidates(
     merged: dict[str, _Merged] = {}
     order: list[str] = []
 
-    def add(term: str, count: int, source: str, keyness: float | None = None) -> bool:
+    def add(term: str, count: int, source: str, keyness: float | None = None, cap: int | None = None) -> bool:
         """加入或合并一个候选；返回是否新增了一条。"""
         key = term.lower()
         if _covered(key, glossary_lower):
             return False
         item = merged.get(key)
         if item is None:
-            if len(order) >= config.max_terms:
+            if len(order) >= (config.max_terms if cap is None else cap):
                 return False
             merged[key] = _Merged(term, count, {source}, keyness)
             order.append(key)
@@ -491,6 +495,12 @@ def gather_candidates(
                 add(term, count, STRUCTURE)
             elif added < config.max_structure and add(term, count, STRUCTURE):
                 added += 1
+
+    # 阅读遍：模型逐章读后记下的概念；已有的只补来源标记，新词另有配额
+    if reading:
+        cap = len(order) + config.max_reading
+        for term, count in reading:
+            add(term, count, READING, cap=cap)
 
     total_words = max(1, len(_WORD.findall(corpus)))
     for item in merged.values():

@@ -150,3 +150,12 @@ multi_agent:
     contexts: 1               # 每个候选附全书中差异较大的上下文数；有歧义的多给一处（多路时建议 3）
     batch_size: 120           # 每次模型调用定多少条
     defer_ambiguous: false    # true：有歧义的候选不进账本，留给术语 agent（#18）
+  # 阅读遍（#17）：翻译前按章顺序读完全书，产出覆盖全书各章的文档画像（替换首中尾采样）与概念候选（术语候选第四路）。
+  # 默认关闭：全书原文会多送一遍模型，Cyclonopedia 约多 19–28 万 token（纯翻译的 23–34%，粗估），召回收益未用真实模型实测。
+  # 见 docs/evals/reading_pass.md、ADR-0006、docs/cost-switches.md
+  reading_pass:
+    enabled: false
+    min_chapter_chars: 3000   # 短于此的相邻章节合并读
+    max_chapter_chars: 24000  # 长于此的章节切成几部分读
+    max_state_chars: 4000     # 带入下一章的累计状态上限（字符）
+    profile_max_chars: 1200   # 汇成的文档画像上限（它进每一块的翻译提示；首中尾采样画像约 1k 字符）

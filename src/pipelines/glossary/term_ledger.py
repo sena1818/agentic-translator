@@ -126,6 +126,7 @@ class TermLedgerBuilder:
         self.prompt_builder = prompt_builder
         self.candidates: list[TermCandidate] = []
         self.deferred: list[TermCandidate] = []  # 有歧义、留给术语 agent 的候选
+        self.reading_terms: list[tuple[str, int]] | None = None  # 阅读遍记下的概念（开启阅读遍时由引擎设置）
         self.usage = LedgerUsage()
 
     def _get(self, key: str, default=None):
@@ -142,7 +143,9 @@ class TermLedgerBuilder:
 
     def collect(self, text: str, glossary: dict[str, str], chunks: Sequence | None = None) -> list[TermCandidate]:
         index, cues = prepare_sources(text, chunks)
-        return gather_candidates(index, glossary, text=text, cues=cues, config=source_config(self.config))
+        return gather_candidates(
+            index, glossary, text=text, cues=cues, config=source_config(self.config), reading=self.reading_terms
+        )
 
     async def build(
         self, text: str, glossary: dict[str, str], summary: str = "", chunks: Sequence | None = None

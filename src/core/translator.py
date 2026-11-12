@@ -456,7 +456,11 @@ class TranslationEngine:
         saved = (
             await self.cache.get_profile(profile_key) if profile_key and hasattr(self.cache, "get_profile") else None
         )
-        if saved is not None:
+        await self._run_reading_pass(text, chunks)
+        if self.reading_result is not None and self.reading_result.profile != DocumentProfile.empty():
+            # 阅读遍开启且读出了内容：用覆盖全书各章的画像替换首中尾采样的分析员画像
+            self.document_profile = self.reading_result.profile
+        elif saved is not None:
             self.document_profile = DocumentProfile(**saved)
         elif hasattr(self, "analyze_document"):
             self.document_profile = await self.analyze_document(text, chunks)
@@ -476,6 +480,21 @@ class TranslationEngine:
                 }
             )
 
+    async def _run_reading_pass(self, text: str, chunks=None) -> None:
+        """阅读遍（multi_agent.reading_pass.enabled，默认关闭）：逐章读完全书，产出全书画像与概念候选。
+
+        关闭时什么都不做，文档画像与术语账本的行为与未接入时一致。每章笔记写入缓存，续跑不重复花费。
+        """
+        self.reading_result = None
+        from ..pipelines.glossary.reading_pass import ReadingPass, reading_enabled
+
+        if not reading_enabled(self.config):
+            return
+        load = getattr(self.cache, "get_profile", None)
+        save = getattr(self.cache, "set_profile", None)
+        self.reading_result = await ReadingPass(self.llm_analyst, self.config, load, save).run(text, chunks)
+        self.reading_usage = self.reading_result.usage.as_dict()
+
     async def _prepare_term_ledger(self, text: str, chunks=None) -> None:
         """术语账本：为全书反复出现、术语表未覆盖的专名统一译名，并入本次运行的术语表。
 
@@ -488,6 +507,8 @@ class TranslationEngine:
             return
         from ..pipelines.glossary.term_ledger import TermLedgerBuilder
 
+        reading = getattr(self, "reading_result", None)
+        reading_terms = reading.concepts if reading is not None else None
         key = "ledger:" + hashlib.sha256(
             (
                 LEDGER_VERSION
@@ -495,6 +516,7 @@ class TranslationEngine:
                 + json.dumps(self.glossary, ensure_ascii=False, sort_keys=True)
                 + str(getattr(self.config, "prompt_fingerprint", ""))
                 + str(self.config.get("multi_agent.term_ledger", {}))
+                + json.dumps(reading_terms or [], ensure_ascii=False)
             ).encode()
         ).hexdigest()
         saved = await self.cache.get_profile(key) if hasattr(self.cache, "get_profile") else None
@@ -502,6 +524,7 @@ class TranslationEngine:
             ledger = saved.get("terms", {})
         else:
             builder = TermLedgerBuilder(self.llm_analyst, self.config, self.prompt_builder)
+            builder.reading_terms = reading_terms
             ledger = await builder.build(text, self.glossary, self.document_profile.summary, chunks)
             self.term_candidates = builder.candidates
             self.deferred_terms = builder.deferred

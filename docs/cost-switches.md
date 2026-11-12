@@ -16,8 +16,9 @@
 | 全书索引 | #13 | — | 开 | 不调用模型 | [book-index.md](book-index.md) |
 | 非文字审计 | #19 | — | 开 | 不调用模型（整本约 2 秒） | [nontext_audit.md](evals/nontext_audit.md) |
 | 纠正记忆的术语建议 | #22 | 填写任务的作者 / 领域才会注入 | 不填则不注入 | 每块提示多几行"参考译名" | [correction-memory.md](correction-memory.md) |
+| 阅读遍 | #17 | `multi_agent.reading_pass.enabled` | 关 | 每章一次调用，全书原文多送一遍：Cyclonopedia 39 次调用、约 19–28 万 token（纯翻译的 23–34%，粗估，上下界分别对应笔记为空 / 写满）；画像替换首中尾采样，随每块发送的部分上限 1200 字符，与原画像（约 1k 字符）相当 | [reading_pass.md](evals/reading_pass.md) |
 
-待加入（实现时按同一原则：默认关闭，并在此表填上实测成本）：#17 阅读遍、#18 术语 agent、#21 审校 agent。
+待加入（实现时按同一原则：默认关闭，并在此表填上实测成本）：#18 术语 agent、#21 审校 agent。
 
 ## 开启全部可选阶段
 
@@ -30,6 +31,8 @@ multi_agent:
     max_terms: 240
     contexts: 3
     batch_size: 60
+  reading_pass:
+    enabled: true
 quality:
   semantic_check:
     enabled: true

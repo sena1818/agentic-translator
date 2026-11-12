@@ -1,0 +1,28 @@
+{
+  "model_used": false,
+  "full_notes": false,
+  "chapters": 39,
+  "usage": {
+    "chapters": 39,
+    "calls": 39,
+    "cached_chapters": 0,
+    "failed_chapters": 0,
+    "invalid_notes": 0,
+    "prompt_chars": 660854,
+    "estimated_prompt_tokens": 175049,
+    "reported_tokens": 0,
+    "max_state_chars": 935,
+    "seconds": 0.78
+  },
+  "estimated_output_tokens": 13650,
+  "estimated_total_tokens": 188699,
+  "concepts": 0,
+  "profile": {
+    "summary": "",
+    "overview_lines": 0,
+    "term_hints": 0,
+    "prompt_chars": 9,
+    "prompt_tokens": 9,
+    "chunks": 242
+  }
+}
