@@ -22,6 +22,7 @@ from ...domain.rules.term_candidates import TermCandidate
 from ...domain.rules.term_sources import (
     ALL_SOURCES,
     AMBIGUITY_LABELS,
+    PROPER,
     SOURCE_LABELS,
     SourceConfig,
     gather_candidates,
@@ -85,10 +86,19 @@ def prepare_sources(text: str, chunks: Sequence | None = None) -> tuple[BookInde
     return index, None
 
 
+LEGACY_SOURCES = (PROPER,)
+LEGACY_MAX_TERMS = 120
+LEGACY_BATCH_SIZE = 120
+
+
 def source_config(config) -> SourceConfig:
+    """读取术语候选配置；没写的项取旧版行为（只抽专名、120 条、每个候选 1 处上下文）。
+
+    多路候选会显著增加账本调用的 token，只在配置里明确开启时使用（见 docs/cost-switches.md）。
+    """
     getter = getattr(config, "get", None) or (lambda _key, default=None: default)
-    sources = getter("multi_agent.term_ledger.sources", None) or ALL_SOURCES
-    defaults = SourceConfig()
+    sources = getter("multi_agent.term_ledger.sources", None) or LEGACY_SOURCES
+    defaults = SourceConfig(max_terms=LEGACY_MAX_TERMS, contexts=1)
     return SourceConfig(
         max_proper=int(getter("multi_agent.term_ledger.max_proper", defaults.max_proper)),
         max_keyness=int(getter("multi_agent.term_ledger.max_keyness", defaults.max_keyness)),
@@ -128,7 +138,7 @@ class TermLedgerBuilder:
 
     @property
     def batch_size(self) -> int:
-        return max(1, int(self._get("multi_agent.term_ledger.batch_size", 60)))
+        return max(1, int(self._get("multi_agent.term_ledger.batch_size", LEGACY_BATCH_SIZE)))
 
     def collect(self, text: str, glossary: dict[str, str], chunks: Sequence | None = None) -> list[TermCandidate]:
         index, cues = prepare_sources(text, chunks)
