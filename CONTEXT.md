@@ -79,3 +79,5 @@
 | Agent 预算 | AgentBudget | 单个条目的步数、token、工具调用次数三重上限。 |
 | 已决定事项摘要 | decided summary | 前面条目已提交结论的有界摘要，注入后续条目的系统提示，保持全局一致而不共享上下文。 |
 | Agent 追踪 | trace（JSONL） | 每步的输入消息、回复、token、上下文长度、工具调用与结局；可离线回放出相同结局。 |
+| 共享工具 / 工具集 | Shared Tool / ToolSuite | 带 `@shared_tool` 标记的 async 函数（首参 ToolContext），绑定上下文后同一个函数对象同时注册进内部 agent 的 ToolRegistry 和 MCP；参数 schema 由类型注解推出。见 src/application/tools、docs/mcp-server.md。 |
+| 预览 / 确认 | Preview / confirm | 写入类共享工具的约定：不带 confirm=true 只返回将要做的改动与改后质检结果，不改变任何数据；确认后才执行。 |

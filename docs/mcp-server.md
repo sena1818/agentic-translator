@@ -8,7 +8,13 @@
 不新增业务逻辑，因此与 Web 界面、后台 worker **共享同一份 SQLite 任务库和
 `data/glossaries` 术语表存储**。
 
+**工具一套、出口两个**：所有工具先进同一个 `ToolRegistry`（#15 的 agent 运行框架用的那个），
+再整体挂到 MCP。内部 agent 取工具子集时拿到的就是 MCP 暴露的同一批函数对象，同一段实现
+（见下文"给内部 agent 挂工具"）。
+
 ## 工具清单
+
+### 任务与术语表
 
 | 工具 | 作用 |
 | --- | --- |
@@ -24,6 +30,90 @@
 | `modify_glossary_terms` | 增量增/删术语词条 |
 | `update_glossary` | 全量替换术语表词条 |
 | `delete_glossary` | 删除术语表 |
+
+### 审校（`src/application/tools/review.py`）
+
+| 工具 | 作用 | 写入 |
+| --- | --- | :---: |
+| `list_quality_issues` | 列出质检问题（含失败块），按严重度排序，可按 severity / kind 过滤 | |
+| `read_chunk` | 读一块的原文、译文、质检报告和当前 `revision` | |
+| `read_segment` | 读一段（对照阅读器段号）的原文、译文和该段的问题 | |
+| `edit_chunk` | 修改一块译文；预览返回新旧译文与新译文的质检结果 | ✅ |
+| `retranslate_chunks` | 把指定块重新排队翻译 | ✅ |
+| `resume_task` | 只重译失败的块 | ✅ |
+
+### 术语与记忆（`src/application/tools/terms.py`）
+
+| 工具 | 作用 | 写入 |
+| --- | --- | :---: |
+| `term_occurrences` | 一个词在全书原文里的全部出现处（含所在段的译文） | |
+| `term_renderings` | 一个词在全书的各种译法、次数与证据段 | |
+| `read_term_ledger` | 本书当前生效的术语（术语表 + 账本 + 人工决定），标明来源 | |
+| `update_term_decision` | 定下一个术语的译名（不改已有译文） | ✅ |
+| `propagate_term_correction` | 把旧译名改成新译名并传播到全书；预览列出要改的段 | ✅ |
+| `list_corrections` | 本书的纠正记录（编辑、术语决定、传播） | |
+| `term_suggestions` | 同作者 / 同领域其他书的术语建议 | |
+
+### 审计、用量与检索（`audit.py`、`search.py`）
+
+| 工具 | 作用 |
+| --- | --- |
+| `run_nontext_audit` | 对当前译文重跑全书非文字审计（不调用模型、不写文件），可按来源过滤 |
+| `quality_summary` | 任务的质量汇总计数 |
+| `usage_report` | 各块耗时与重试、可选阶段（术语账本、语义质检、分类型修复）的用量；翻译调用的 token 未按任务记录，见 Langfuse |
+| `search_book` | 按关键词查段（原文 / 译文 / 任一） |
+| `search_book_by_meaning` | 按意思找原话（中英文查询） |
+
+### 写入类工具：先预览、再确认
+
+上表标"写入"的工具都有 `confirm` 参数，默认 `false`：只返回预览（要改什么、改后什么样、改后的质检结果），
+**不改变任何数据**；确认无误后带 `confirm: true` 再调用一次才执行。编辑和传播会带上预览时的 `revision`，
+期间结果被别人改过则拒绝执行，需重新预览。
+
+（任务与术语表那一组是先前就有的工具，保持原行为：`submit_document`、`cancel_task` 与术语表增删改
+调用即生效。）
+
+**例：把一个术语的译名改掉并传播到全书**
+
+1. `term_renderings(task_id, "Numogram")` → 看到全书都译成"数图"；
+2. `update_term_decision(task_id, "Numogram", "数字图")` 预览 → 带 `confirm: true` 确认；
+3. `propagate_term_correction(task_id, "Numogram", "数图", "数字图")` 预览 → 列出要改的段与改后文字；
+4. 同一工具带 `revision`（预览返回的）和 `confirm: true` → 应用；改动的块按新译名重新质检。
+
+## 给内部 agent 挂工具
+
+工具写成带 `@shared_tool` 的 async 函数，第一个参数是 `ctx: ToolContext`，其余参数带类型注解
+（参数 schema 由注解推出，内部注册表按它校验，FastMCP 也从同一签名生成输入 schema）：
+
+```python
+from src.application.tools import ToolContext, shared_tool
+
+@shared_tool("lookup_sense")
+async def lookup_sense(ctx: ToolContext, task_id: str, term: str, limit: int = 5) -> dict:
+    """查一个术语在书中的几种义项。（docstring 第一段就是工具说明）"""
+    ...
+
+@shared_tool("set_sense", writes=True)          # 写入类必须带 confirm，默认只预览
+async def set_sense(ctx: ToolContext, task_id: str, term: str, sense: str, confirm: bool = False) -> dict:
+    ...
+```
+
+- **同时暴露给 MCP**：把模块加进 `src/application/tools/__init__.py` 的 `DEFAULT_MODULES`。
+- **只给内部 agent 用**：不加进 `DEFAULT_MODULES`，组装时单独传入：
+
+```python
+from src.application.tools import ToolContext, build_tool_suite
+from src.application.tools import terms, review
+from . import my_agent_tools
+
+suite = build_tool_suite(ToolContext(service=translation_service), modules=[terms, review, my_agent_tools])
+registry = suite.subset(["term_occurrences", "term_renderings", "read_segment", "lookup_sense"])
+# registry 直接交给 src/infrastructure/agent 的运行器
+```
+
+`ToolContext` 带 `service`（任务用例）、`glossary_service`、`extras`（模块自己需要的其他依赖，
+如翻译前还没有任务时传入的全书索引），以及每次调用前执行的 `prepare` 钩子。
+已在 MCP server 里的注册表可直接复用：`TranslatorMCPServer(...).registry`。
 
 ### 典型工作流
 

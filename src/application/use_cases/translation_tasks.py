@@ -34,6 +34,21 @@ logger = logging.getLogger(__name__)
 SOURCE_NAME = "source.md"
 
 
+def _stage_usage(engine) -> dict:
+    """各可选阶段单独记下的用量（术语账本、语义质检、分类型修复），写入 `{task_id}.usage.json` 供 usage_report 读取。"""
+    usage = {}
+    ledger = getattr(engine, "term_ledger_usage", None)
+    if ledger:
+        usage["term_ledger"] = dict(ledger)
+    semantic = getattr(getattr(engine, "semantic_checker", None), "usage", None)
+    if semantic is not None and hasattr(semantic, "as_dict"):
+        usage["semantic_check"] = semantic.as_dict()
+    repair = getattr(getattr(engine, "structured_translator", None), "repair_stats", None)
+    if repair is not None and hasattr(repair, "as_dict"):
+        usage["typed_repair"] = repair.as_dict()
+    return usage
+
+
 class TranslationService:
     def __init__(self, repository=None, converter=None, glossary_service=None, files=None, config=None):
         self.tasks = repository or TaskRepository()
@@ -224,6 +239,13 @@ class TranslationService:
             failures = [r for r in results if not r.success]
             warnings = [r for r in results if r.success and r.quality_report.get("passed") is False]
             task.quality_summary = self._summary(results, directory, task_id)
+            usage = _stage_usage(use_case.engine)
+            if usage:  # 嵌套结构不进 quality_summary（API 约定为整数计数），单独存一份供 usage_report 读取
+                await asyncio.to_thread(
+                    (directory / f"{task_id}.usage.json").write_text,
+                    json.dumps(usage, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
             new_terms = getattr(use_case.engine, "term_ledger", None) or {}
             if new_terms or saved_ledger:
                 _, added = await save_ledger(self.glossary_service, task.filename, new_terms)

@@ -38,7 +38,7 @@ Every claim about whether this architecture helps is backed by a reproducible [e
 - 🌗 **Bilingual export** — paragraph-aligned source/translation Markdown plus the linked reader above; the reader opens inside the web app at a bookmarkable address, and the offline file stores each image once for both panes
 - 📖 **EPUB export** — translation-only and bilingual EPUB3 with table of contents, images and linked footnotes; images that cannot be found are listed in the export stats and shown on the task page
 - 🌐 **Web UI** — React + FastAPI, with task search, cancellation, recovery, per-chunk retranslation, and manual review
-- 🔌 **MCP server** — stdio transport exposing translation, task management, and glossary tools to Claude Desktop and other MCP clients
+- 🔌 **MCP server** — stdio transport exposing translation, task management, glossary, review, terminology and audit tools to Claude Desktop and other MCP clients; internal agents use the same tool registry
 - 🔭 **Observability** — opt-in Langfuse tracing of the full agent call chain and per-chunk token usage, degrading to no-op when unconfigured
 
 ## Quick start (Docker)
@@ -190,7 +190,7 @@ Throughput on a real production run (Ccru.md, 344 chunks, concurrency 10): **~25
 
 ## MCP server
 
-Expose the whole system to Claude Desktop (or any MCP client) as 12 tools — instant text translation, async document jobs, and full glossary CRUD — via stdio. Add to `claude_desktop_config.json`:
+Expose the whole system to Claude Desktop (or any MCP client) via stdio: instant text translation, async document jobs, glossary CRUD, plus review, terminology/correction-memory, audit, usage and search tools. Internal agents and MCP share one tool registry, and every tool that writes data only previews until called with `confirm: true`. Add to `claude_desktop_config.json`:
 
 ```json
 {

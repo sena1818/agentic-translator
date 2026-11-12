@@ -38,7 +38,7 @@
 - 🌗 **双语对照导出** —— 按段落对齐的原文/译文 Markdown，以及上面的联动对照阅读器；阅读器可在网页应用内以固定地址打开（可收藏、刷新不丢），离线文件里每张图只存一份、两栏共用
 - 📖 **EPUB 导出** —— 仅译文与双语两种 EPUB3，带目录、图片与可跳转脚注；找不到的图片列入导出统计并在任务详情里显示
 - 🌐 **Web 管理界面** —— React + FastAPI，SQLite 任务队列，支持取消、恢复、逐块重译及人工编辑
-- 🔌 **MCP Server** —— stdio 传输，把翻译、任务管理、术语表工具暴露给 Claude Desktop 等 MCP 客户端
+- 🔌 **MCP Server** —— stdio 传输，把翻译、任务管理、术语表、审校、术语与审计工具暴露给 Claude Desktop 等 MCP 客户端；内部 agent 用同一个工具注册表
 - 🔭 **可观测性** —— 可选接入 Langfuse，追踪完整 Agent 调用链与逐块 token 消耗，未配置时自动降级为无操作
 
 ## 快速开始（Docker）
@@ -182,7 +182,7 @@ python run_worker.py --processes 4 --parallel-tasks 2  # 终端 2：worker 集�
 
 ## MCP Server
 
-把整个系统以 12 个工具的形式暴露给 Claude Desktop（或任意 MCP 客户端）—— 短文本即时翻译、异步文档任务、完整术语表 CRUD，走 stdio 传输。在 `claude_desktop_config.json` 中添加：
+把整个系统暴露给 Claude Desktop（或任意 MCP 客户端），走 stdio 传输：短文本即时翻译、异步文档任务、术语表增删改，以及审校、术语与纠正记忆、审计、用量和检索工具。内部 agent 与 MCP 共用同一个工具注册表；会写入数据的工具不带 `confirm: true` 时只预览。在 `claude_desktop_config.json` 中添加：
 
 ```json
 {

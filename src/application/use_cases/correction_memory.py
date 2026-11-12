@@ -199,6 +199,38 @@ class CorrectionMemoryService:
         self._update_ledger(task.filename, plan.term, plan.new_rendering)
         return entry
 
+    def decide_term(self, task, term: str, rendering: str, scope: str | None = None) -> TermEntry:
+        """只更新术语决定、不改动已有译文：记一条 kind="term" 的纠正，写入人工术语条目并覆盖本书账本。
+
+        之后的质检、重译都按新译名；已有译文里的旧译名需要另行发起书内传播。
+        """
+        term, rendering = term.strip(), rendering.strip()
+        if not term or not rendering:
+            raise ValueError("术语和译名都不能为空")
+        scope = scope or default_scope(task.author, task.domain)
+        if scope not in SCOPES:
+            raise ValueError("适用范围只能是 book、author 或 domain")
+        book = book_name(task.filename)
+        previous = self.human_overrides(task.task_id)
+        old = next((value for key, value in previous.items() if key.casefold() == term.casefold()), "")
+        self.store.add_correction(
+            Correction(
+                task_id=task.task_id,
+                book=book,
+                chunk_index=None,
+                kind="term",
+                term=term,
+                old_text=old,
+                new_text=rendering,
+            )
+        )
+        entry = TermEntry(
+            task.task_id, book, term, rendering, scope, SOURCE_HUMAN, task.author, task.domain, updated_at=_now()
+        )
+        self.store.upsert_entries([entry])
+        self._update_ledger(task.filename, term, rendering)
+        return entry
+
     def _update_ledger(self, filename: str, term: str, rendering: str) -> None:
         """账本里同名术语改成新译名（人工决定覆盖自动识别）；账本里没有就追加。"""
         if self.glossary_service is None:
