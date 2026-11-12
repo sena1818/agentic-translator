@@ -12,3 +12,7 @@ translator-eval --out docs/evals/results --estimated-cost <人民币>
 ```
 
 方法与复现细节见 [../methodology.md](../methodology.md)。
+
+## 真实评测
+
+- [bench_2026-11-12.md](bench_2026-11-12.md)：旧版 / 新版·默认 / 新版·全开在四本书节选上的对比，含成本与盲评（#25）。

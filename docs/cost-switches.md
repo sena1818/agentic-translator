@@ -2,7 +2,7 @@
 
 原则：主翻译流程（分块 → 翻译 → 段级质检 → 修复 → 导出）之外，凡是会额外调用模型的阶段都有配置开关，
 **默认关闭或保持旧版行为**；开启后单独统计它的 token、调用次数和耗时，没有可测收益的阶段不保留。
-目标是全部开启时总 token 不超过纯翻译的约 2.5 倍（尚未实测，待 #25 的前后对比）。
+原定目标是全部开启时总 token 不超过纯翻译的约 2.5 倍。#25 在四本书节选上实测：全开的费用是旧版的 **6.4 倍**，token 约 8.5 倍，用时约 15 倍，大头是术语 agent 和审校 agent；默认配置与旧版持平。详见 [bench_2026-11-12.md](evals/results/bench_2026-11-12.md)。
 
 下表的"额外成本"注明了是实测还是按字符粗估。Cyclonopedia 整本纯翻译约 82 万 token，作为参照。
 
@@ -17,8 +17,8 @@
 | 非文字审计 | #19 | — | 开 | 不调用模型（整本约 2 秒） | [nontext_audit.md](evals/nontext_audit.md) |
 | 纠正记忆的术语建议 | #22 | 填写任务的作者 / 领域才会注入 | 不填则不注入 | 每块提示多几行"参考译名" | [correction-memory.md](correction-memory.md) |
 | 阅读遍 | #17 | `multi_agent.reading_pass.enabled` | 关 | 每章一次调用，全书原文多送一遍：Cyclonopedia 39 次调用、约 19–28 万 token（纯翻译的 23–34%，粗估，上下界分别对应笔记为空 / 写满）；画像替换首中尾采样，随每块发送的部分上限 1200 字符，与原画像（约 1k 字符）相当 | [reading_pass.md](evals/reading_pass.md) |
-| 审校 agent | #21 | `review_agent.enabled`（开启后在任务详情页手动运行）；`max_issues`、每条问题的 `max_steps` / `max_tokens` / `max_tool_calls` | 关 | 每条进 agent 的问题约 3–4k token（假模型按字符估），单条上限 12k；Cyclonopedia 基线有 53 条会进 agent（另 3 条直接转人工），约 20 万 token，上限约 64 万（粗估，纯翻译约 82 万） | [review_agent.md](evals/review_agent.md) |
-| 术语 agent | #18 | `multi_agent.term_agent.enabled`；`max_items`、`max_steps`、`max_tokens`、`max_tool_calls` 控制上限 | 关 | 每条有歧义的候选最多 `max_steps` 次模型调用、`max_tokens` token（默认 8 次 / 1.6 万）；最坏情况 = `max_items × max_tokens`（默认 64 万）。实际用量未用真实模型测过；运行后写入任务质检摘要 `term_agent_tokens` | [term_agent.md](evals/term_agent.md) |
+| 审校 agent | #21 | `review_agent.enabled`（开启后在任务详情页手动运行）；`max_issues`、每条问题的 `max_steps` / `max_tokens` / `max_tool_calls` | 关 | 每条进 agent 的问题约 3–4k token（假模型按字符估），单条上限 12k；Cyclonopedia 基线有 53 条会进 agent（另 3 条直接转人工），约 20 万 token，上限约 64 万（粗估，纯翻译约 82 万）。实测（#25 节选）：每条平均 5.2k–8.5k token，四本节选各 31–107 条，每本 24–77 万 token | [review_agent.md](evals/review_agent.md) |
+| 术语 agent | #18 | `multi_agent.term_agent.enabled`；`max_items`、`max_steps`、`max_tokens`、`max_tool_calls` 控制上限 | 关 | 每条有歧义的候选最多 `max_steps` 次模型调用、`max_tokens` token（默认 8 次 / 1.6 万）；最坏情况 = `max_items × max_tokens`（默认 64 万）。实测（#25 节选）：每本都处理满 40 条，每条平均约 1.1–1.3 万 token，每本合计 41–53 万，约为节选纯翻译的 3 倍；运行后写入任务质检摘要 `term_agent_tokens` | [term_agent.md](evals/term_agent.md) |
 
 ## 开启全部可选阶段
 
@@ -32,6 +32,8 @@ multi_agent:
     contexts: 3
     batch_size: 60
   reading_pass:
+    enabled: true
+  term_agent:
     enabled: true
 quality:
   semantic_check:
