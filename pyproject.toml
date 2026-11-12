@@ -34,6 +34,11 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.5",
 ]
+# 语义检索的本机向量模型（semantic_search.embedder: local）；只从本地缓存加载模型
+semantic-local = [
+    "torch>=2.0",
+    "transformers>=4.40",
+]
 
 [project.scripts]
 translate = "translate:main"
