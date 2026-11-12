@@ -1,0 +1,148 @@
+{
+  "stats": {
+    "undetected_injections": 11,
+    "false_positives_not_flagged": 0
+  },
+  "with_audit": true,
+  "policies": {
+    "不开 agent（现状）": {
+      "cases": {
+        "injected_errors": 40,
+        "known_false_positives": 11
+      },
+      "outcome": {
+        "correct_fix": 0,
+        "fix_differs": 0,
+        "wrong_dismiss": 0,
+        "fix_handoff": 40,
+        "correct_dismiss": 0,
+        "wrong_fix": 0,
+        "dismiss_handoff": 11
+      },
+      "rates": {
+        "correct_fix": 0.0,
+        "correct_dismiss": 0.0,
+        "handoff": 1.0,
+        "wrong_fix_on_false_positive": 0.0,
+        "wrong_dismiss_of_real_error": 0.0
+      },
+      "gate": {
+        "fixes_applied": 0,
+        "all_applied_fixes_pass_no_regression": true,
+        "rejected_submissions": 0
+      },
+      "cost": {
+        "issues": 51,
+        "by_verdict": {
+          "fixed": 0,
+          "dismissed": 0,
+          "handoff": 51
+        },
+        "by_kind": {
+          "audit:code": {
+            "handoff": 3
+          },
+          "audit:link": {
+            "handoff": 3
+          },
+          "fidelity": {
+            "handoff": 2
+          },
+          "semantic": {
+            "handoff": 31
+          },
+          "terminology": {
+            "handoff": 12
+          }
+        },
+        "direct_handoff": 0,
+        "over_limit": 0,
+        "agent_runs": 0,
+        "tokens": 0,
+        "steps": 0,
+        "tool_calls": 0,
+        "max_tokens_per_issue": 0,
+        "max_steps_per_issue": 0,
+        "mean_tokens_per_issue": 0,
+        "seconds": 0.0
+      },
+      "wrong_fix_examples": []
+    },
+    "脚本化假审校员": {
+      "cases": {
+        "injected_errors": 40,
+        "known_false_positives": 11
+      },
+      "outcome": {
+        "correct_fix": 26,
+        "fix_differs": 0,
+        "wrong_dismiss": 0,
+        "fix_handoff": 14,
+        "correct_dismiss": 9,
+        "wrong_fix": 2,
+        "dismiss_handoff": 0
+      },
+      "rates": {
+        "correct_fix": 0.65,
+        "correct_dismiss": 0.8182,
+        "handoff": 0.2745,
+        "wrong_fix_on_false_positive": 0.1818,
+        "wrong_dismiss_of_real_error": 0.0
+      },
+      "gate": {
+        "fixes_applied": 28,
+        "all_applied_fixes_pass_no_regression": true,
+        "rejected_submissions": 8
+      },
+      "cost": {
+        "issues": 51,
+        "by_verdict": {
+          "fixed": 28,
+          "dismissed": 9,
+          "handoff": 14
+        },
+        "by_kind": {
+          "audit:code": {
+            "handoff": 3
+          },
+          "audit:link": {
+            "handoff": 3
+          },
+          "fidelity": {
+            "fixed": 2
+          },
+          "semantic": {
+            "fixed": 19,
+            "handoff": 7,
+            "dismissed": 5
+          },
+          "terminology": {
+            "fixed": 7,
+            "handoff": 1,
+            "dismissed": 4
+          }
+        },
+        "direct_handoff": 6,
+        "over_limit": 0,
+        "agent_runs": 45,
+        "tokens": 162600,
+        "steps": 124,
+        "tool_calls": 71,
+        "max_tokens_per_issue": 4134,
+        "max_steps_per_issue": 3,
+        "mean_tokens_per_issue": 3613.3,
+        "seconds": 4.632
+      },
+      "wrong_fix_examples": [
+        {
+          "before": "他们整个下午都在烈日下干活。",
+          "after": "他们整个下午都在烈日下干活（太阳）。"
+        },
+        {
+          "before": "成群的游客挤满了广场。",
+          "after": "成群的游客挤满了广场（游牧群）。"
+        }
+      ]
+    }
+  }
+}

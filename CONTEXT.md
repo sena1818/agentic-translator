@@ -84,3 +84,7 @@
 | Agent 追踪 | trace（JSONL） | 每步的输入消息、回复、token、上下文长度、工具调用与结局；可离线回放出相同结局。 |
 | 共享工具 / 工具集 | Shared Tool / ToolSuite | 带 `@shared_tool` 标记的 async 函数（首参 ToolContext），绑定上下文后同一个函数对象同时注册进内部 agent 的 ToolRegistry 和 MCP；参数 schema 由类型注解推出。见 src/application/tools、docs/mcp-server.md。 |
 | 预览 / 确认 | Preview / confirm | 写入类共享工具的约定：不带 confirm=true 只返回将要做的改动与改后质检结果，不改变任何数据；确认后才执行。 |
+| 审校 agent | ReviewAgent | 翻译后对质检仍标记的问题逐条分诊的 agent：已修 / 已驳回 / 待人工。建在 Agent 运行框架上，工具来自共享工具注册表（src/application/tools/triage.py）。默认关闭（review_agent.enabled）。见 docs/review-agent.md。 |
+| 分诊 / 分诊结局 | Triage / verdict | 对一条被标记问题的处理决定：fixed（修改通过逐类型不退步检查后生效）、dismissed（判为误报，必须写理由）、handoff（拿不准、修改没通过检查、超预算，或该类问题编辑修不了）。 |
+| 约束式编辑（审校） | Review edit | 审校 agent 唯一能做的修改：把段译文里恰好出现一次的一段文字换成另一段，改动片段不超过 40 字、不碰标签；由程序应用并重新质检，不能整段重写。 |
+| 直接转人工 | Direct handoff | 编辑修不了的问题（缺段、截断、结构标签，图片/公式/代码/表格/链接/脚注对不上）不进 agent、不花 token，直接标为待人工。 |

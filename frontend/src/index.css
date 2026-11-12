@@ -757,3 +757,14 @@ progress { accent-color:var(--accent); }
 .book-search-source, .book-search-translation { margin: 0 0 6px; line-height: 1.6; overflow-wrap: anywhere; }
 .book-search-source { color: var(--text-2); }
 .book-search-note { font-size: 0.85em; color: var(--text-3); }
+
+/* 审校 agent 分诊（issue #21） */
+.review-agent-note { margin: 4px 0 10px; color: var(--text-2); font-size: 14px; }
+.review-agent-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.review-agent-list li { padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; }
+.review-agent-detail { margin-top: 4px; color: var(--text-3); font-size: 13px; }
+.review-agent-detail del { color: var(--warn); }
+.review-agent-detail ins { color: var(--green); text-decoration: none; }
+.review-fixed { background: var(--accent-light); color: var(--accent); }
+.review-dismissed { background: var(--bg-muted); color: var(--text-3); }
+.review-handoff { background: var(--warn-light); color: var(--warn); }

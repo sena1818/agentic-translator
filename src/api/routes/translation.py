@@ -173,6 +173,22 @@ async def list_corrections(task_id: str, limit: int = Query(100, ge=1, le=500)):
     return await service.task_corrections(task_id, limit)
 
 
+class ReviewAgentRequest(BaseModel):
+    revision: str | None = None
+
+
+@router.get("/tasks/{task_id}/review-agent")
+async def review_agent_status(task_id: str):
+    """审校 agent 是否启用，以及最近一次分诊的结果与成本。"""
+    return await service.review_agent_status(task_id)
+
+
+@router.post("/tasks/{task_id}/review-agent")
+async def run_review_agent(task_id: str, payload: ReviewAgentRequest):
+    """对质检后仍被标记的问题分诊：能修的修（须通过逐类型不退步检查）、误报的驳回、拿不准的转人工。"""
+    return await service.run_review_agent(task_id, payload.revision)
+
+
 @router.get("/tasks/{task_id}/term-suggestions")
 async def term_suggestions(task_id: str):
     """同作者、同领域其他书的术语建议，每条标明来源书与决定来源。"""

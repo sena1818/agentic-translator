@@ -1,0 +1,24 @@
+{
+  "description": "审校 agent 分诊基准里的'已知误报'：译文正确，但当前质检（规则 + 语义启发式）会报问题。全部为自撰短句。前五类来自 Cyclonopedia 实测误报的模式（术语表条目按不区分大小写的子串命中普通词或人名），后几条是语义启发式对意译的误报。正确的分诊结局是驳回。",
+  "glossary": {
+    "Solid": "固态 (Solid)",
+    "Dust": "尘埃 (Dust)",
+    "Sun": "太阳 (Sun)",
+    "Mission": "使命 (Mission)",
+    "Gates": "门 (Gates)",
+    "Horde": "游牧群 (Horde)"
+  },
+  "cases": [
+    {"source": "She made a solid argument for the reform.", "translation": "她为这项改革提出了扎实的论证。", "note": "solid 是形容词，不是术语 Solid"},
+    {"source": "He wiped the dust off the old map.", "translation": "他把旧地图上的灰擦掉了。", "note": "普通的灰尘，不是术语 Dust"},
+    {"source": "They worked under the hot sun all afternoon.", "translation": "他们整个下午都在烈日下干活。", "note": "烈日是合理意译"},
+    {"source": "The mission of the committee is to audit the budget.", "translation": "委员会的任务是审计预算。", "note": "普通词义的 mission"},
+    {"source": "Bill Gates funded the study.", "translation": "比尔·盖茨资助了这项研究。", "note": "人名，不是术语 Gates"},
+    {"source": "The horde of tourists filled the square.", "translation": "成群的游客挤满了广场。", "note": "普通词义的 horde"},
+    {"source": "Nothing was lost in the fire.", "translation": "火灾中一切都保住了。", "note": "否定改写为肯定，意思相同"},
+    {"source": "No one doubts that the method works.", "translation": "人人都相信这个方法有效。", "note": "双重否定改写为肯定"},
+    {"source": "It is not impossible that the archive survived.", "translation": "档案有可能留存了下来。", "note": "not impossible 译为有可能"},
+    {"source": "Without exception, every sample passed.", "translation": "每个样本都通过了。", "note": "without exception 由'每个……都'表达"},
+    {"source": "The temperature fell from 30 to 20 degrees.", "translation": "温度降到 20 度，此前是 30 度。", "note": "中文调换语序，起止没有写反"}
+  ]
+}

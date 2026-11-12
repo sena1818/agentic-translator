@@ -4,6 +4,7 @@ import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ReactMarkdown from "react-markdown";
 import BookSearch from "./BookSearch";
+import ReviewAgentPanel from "./ReviewAgentPanel";
 import remarkGfm from "remark-gfm";
 import {
   getTaskStatus,
@@ -456,6 +457,13 @@ export default function TaskDetail() {
         />
       )}
       {downloadable && structured && <BookSearch taskId={id} />}
+      {downloadable && structured && (
+        <ReviewAgentPanel
+          id={id}
+          revision={chunks.data?.revision ?? null}
+          onDone={refresh}
+        />
+      )}
       {!active && (
         <section className="section">
           <div className="section-header">
