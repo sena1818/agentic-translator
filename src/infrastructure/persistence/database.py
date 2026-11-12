@@ -25,6 +25,8 @@ _EXTRA_COLUMNS = {
     "glossary_snapshot": "TEXT DEFAULT '{}'",
     "retry_indices": "TEXT DEFAULT '[]'",
     "quality_summary": "TEXT DEFAULT '{}'",
+    "author": "TEXT",
+    "domain": "TEXT",
 }
 _TERMINAL = {s.value for s in TaskStatus} - {"pending", "processing"}
 

@@ -726,3 +726,23 @@ progress { accent-color:var(--accent); }
 .missing-images ul { margin: 6px 0 0; padding-left: 20px; }
 .issue-locate { margin-left: 6px; font-size: 0.9em; white-space: nowrap; }
 .ledger-summary { margin: 4px 0 12px; color: var(--muted, #666); font-size: 0.92em; }
+
+/* 纠正记忆：书的作者 / 领域、全书改译名、跨书术语建议 */
+.text-input {
+  width: 100%; box-sizing: border-box; background: var(--bg);
+  border: 1px solid var(--border); border-radius: 5px; padding: 10px 14px;
+  font-family: 'DM Sans', sans-serif; font-size: 14px; color: var(--text); outline: none;
+}
+.text-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-light); }
+.chip-edited { background: var(--accent-light); color: var(--accent); margin-left: 6px; }
+.term-correction-form { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+.term-correction-form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; min-width: 140px; flex: 1 1 140px; }
+.term-correction-form input { border: 1px solid var(--border); border-radius: 5px; padding: 8px 10px; font-size: 14px; background: var(--bg); color: var(--text); }
+.term-correction-preview ul { list-style: none; padding: 0; margin: 10px 0; }
+.term-correction-preview li { padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+.term-correction-preview del { color: var(--warn); }
+.term-correction-preview ins { color: var(--green); text-decoration: none; }
+.term-correction-source { color: var(--muted, #666); font-size: 13px; }
+.term-suggestions { margin: 8px 0 16px; font-size: 14px; }
+.term-suggestions ul { margin: 6px 0 0; padding-left: 20px; }
+.term-suggestion-source { color: var(--muted, #666); font-size: 0.9em; }

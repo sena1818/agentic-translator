@@ -10,6 +10,7 @@ import {
   cancelTranslation,
   retryTranslation,
   editChunk,
+  markReviewed,
   downloadResult,
   readerUrl,
   readerPagePath,
@@ -17,7 +18,9 @@ import {
   errorText,
   assetUrl,
   type ChunkResult,
+  type TermCorrection,
 } from "../services/api";
+import { TermCorrectionPanel, TermSuggestions } from "./TermCorrectionPanel";
 import {
   statusLabels,
   chipClass,
@@ -53,22 +56,41 @@ function ChunkEditor({
   id,
   revision,
   onSaved,
+  onTermChange,
 }: {
   chunk: ChunkResult;
   id: string;
   revision: string | null;
   onSaved: () => void;
+  onTermChange?: (change: TermCorrection) => void;
 }) {
   const { message } = App.useApp();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(chunk.translation);
   const save = useMutation({
     mutationFn: () => editChunk(id, chunk.chunk_index, draft, revision),
-    onSuccess: () => {
+    onSuccess: (data) => {
       setEditing(false);
       onSaved();
-      message.success("审校已保存，下载结果已更新");
+      const change = data?.term_changes?.[0];
+      if (change && onTermChange) {
+        onTermChange({
+          term: change.term,
+          old: change.old_rendering,
+          new: change.new_rendering,
+        });
+        message.info(
+          `检测到译名修改：${change.term} ${change.old_rendering} → ${change.new_rendering}，可在"全书改译名"中预览其余出现处`,
+        );
+      } else {
+        message.success("修改已保存，下载结果已更新");
+      }
     },
+    onError: (e) => message.error(errorText(e)),
+  });
+  const review = useMutation({
+    mutationFn: () => markReviewed(id, chunk.chunk_index, revision),
+    onSuccess: onSaved,
     onError: (e) => message.error(errorText(e)),
   });
   const retry = useMutation({
@@ -86,12 +108,24 @@ function ChunkEditor({
           {!chunk.success
             ? "翻译失败"
             : chunk.quality_report.reviewed
-              ? "人工已审校"
+              ? "已审校"
               : chunk.quality_report.passed === false
                 ? "待复核"
                 : "质检通过"}
         </span>
+        {chunk.quality_report.edited && (
+          <span className="chip chip-edited">人工编辑过</span>
+        )}
         <div className="td-actions">
+          {chunk.success && !chunk.quality_report.reviewed && (
+            <button
+              className="btn-outline"
+              disabled={review.isPending || save.isPending}
+              onClick={() => review.mutate()}
+            >
+              标记已审校
+            </button>
+          )}
           <button
             className="btn-outline"
             disabled={retry.isPending || save.isPending}
@@ -178,6 +212,7 @@ export default function TaskDetail() {
   const client = useQueryClient();
   const [page, setPage] = useState(1);
   const [reviewOnly, setReviewOnly] = useState(false);
+  const [correction, setCorrection] = useState<TermCorrection | null>(null);
   const task = useQuery({
     queryKey: ["task", id],
     queryFn: () => getTaskStatus(id),
@@ -406,6 +441,19 @@ export default function TaskDetail() {
           )}
         </div>
       )}
+      {!active && !!t.quality_summary.total && <TermSuggestions id={id} />}
+      {!active && structured && (
+        <TermCorrectionPanel
+          key={
+            correction
+              ? `${correction.term}|${correction.old}|${correction.new}`
+              : "blank"
+          }
+          id={id}
+          initial={correction}
+          onApplied={refresh}
+        />
+      )}
       {!active && (
         <section className="section">
           <div className="section-header">
@@ -458,6 +506,7 @@ export default function TaskDetail() {
                   id={id}
                   revision={chunks.data!.revision}
                   onSaved={refresh}
+                  onTermChange={structured ? setCorrection : undefined}
                 />
               ))}
               <Pagination

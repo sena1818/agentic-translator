@@ -17,6 +17,8 @@ async def create_translation_task(
     file: UploadFile = File(...),
     glossary_id: str | None = Form(None),
     bilingual: bool | None = Form(False),
+    author: str | None = Form(None, max_length=200),
+    domain: str | None = Form(None, max_length=200),
 ):
     """
     创建翻译任务
@@ -25,6 +27,7 @@ async def create_translation_task(
     - file: 上传的文件 (PDF/EPUB/Markdown)
     - glossary_id: 术语表 ID (可选)
     - bilingual: 是否启用双语对照模式 (默认 False)
+    - author / domain: 书的作者与领域 (可选)；同作者、同领域的其他书的术语会作为参考译名提示
 
     返回:
     {
@@ -35,7 +38,7 @@ async def create_translation_task(
     }
     """
     content = await file.read(50 * 1024 * 1024 + 1)
-    task = await service.create_task(content, file.filename, glossary_id, bilingual)
+    task = await service.create_task(content, file.filename, glossary_id, bilingual, author, domain)
 
     return task.to_dict()
 
@@ -123,7 +126,57 @@ async def get_chunks(task_id: str, skip: int = Query(0, ge=0), limit: int = Quer
 
 @router.put("/tasks/{task_id}/chunks/{index}")
 async def edit_chunk(task_id: str, index: int, payload: EditRequest):
+    """保存人工编辑：记一条纠正；改掉的是术语译名时在 term_changes 里给出，供前端提示全书传播。"""
     return await service.edit_chunk(task_id, index, payload.translation, payload.revision)
+
+
+class ReviewRequest(BaseModel):
+    revision: str | None = None
+    reviewed: bool = True
+
+
+@router.post("/tasks/{task_id}/chunks/{index}/review")
+async def mark_reviewed(task_id: str, index: int, payload: ReviewRequest):
+    """标记该块已审校（与"人工编辑过"是两种状态）。"""
+    return await service.mark_reviewed(task_id, index, payload.revision, payload.reviewed)
+
+
+class TermCorrectionRequest(BaseModel):
+    term: str = Field(min_length=1, max_length=200)
+    old: str = Field(min_length=1, max_length=200)
+    new: str = Field(min_length=1, max_length=200)
+
+
+class ApplyTermCorrectionRequest(TermCorrectionRequest):
+    positions: list[int] | None = None
+    revision: str | None = None
+    scope: str | None = Field(None, pattern="^(book|author|domain)$")
+
+
+@router.post("/tasks/{task_id}/corrections/preview")
+async def preview_term_correction(task_id: str, payload: TermCorrectionRequest):
+    """书内传播预览：原文含该术语、译文仍用旧译名的段，以及替换后的样子。"""
+    return await service.preview_term_correction(task_id, payload.term, payload.old, payload.new)
+
+
+@router.post("/tasks/{task_id}/corrections/apply")
+async def apply_term_correction(task_id: str, payload: ApplyTermCorrectionRequest):
+    """把预览里选中的段（不传 positions 即全部）批量改为新译名，改动的块重新质检后发布。"""
+    return await service.apply_term_correction(
+        task_id, payload.term, payload.old, payload.new, payload.positions, payload.revision, payload.scope
+    )
+
+
+@router.get("/tasks/{task_id}/corrections")
+async def list_corrections(task_id: str, limit: int = Query(100, ge=1, le=500)):
+    """本书的纠正记录（编辑与传播），新的在前。"""
+    return await service.task_corrections(task_id, limit)
+
+
+@router.get("/tasks/{task_id}/term-suggestions")
+async def term_suggestions(task_id: str):
+    """同作者、同领域其他书的术语建议，每条标明来源书与决定来源。"""
+    return await service.term_suggestions(task_id)
 
 
 @router.get("/tasks/{task_id}/index/search")

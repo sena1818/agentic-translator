@@ -14,6 +14,10 @@ vi.mock("../services/api", async () => ({
   getStructure: vi.fn(),
   cancelTranslation: vi.fn(),
   editChunk: vi.fn(),
+  markReviewed: vi.fn(),
+  previewTermCorrection: vi.fn(),
+  applyTermCorrection: vi.fn(),
+  getTermSuggestions: vi.fn(async () => ({ items: [] })),
 }));
 afterEach(() => {
   cleanup();
@@ -267,4 +271,132 @@ it("有 EPUB 时提供两种下载，缺图时列出找不到的图片", async (
   );
   expect(await screen.findByText("images/lost.png")).toBeInTheDocument();
   expect(screen.getByText(/1 张图片找不到/)).toBeInTheDocument();
+});
+it("改掉术语译名后预览全书其余出现处，勾选后批量应用；建议标明来源", async () => {
+  vi.mocked(api.getTaskStatus).mockResolvedValue({
+    ...task,
+    author: "Nick Land",
+    domain: null,
+    quality_summary: {
+      total: 1,
+      failed: 0,
+      needs_review: 0,
+      repaired: 0,
+      structured: 1,
+      segments: 3,
+    },
+  });
+  vi.mocked(api.getChunks).mockResolvedValue({
+    total: 1,
+    revision: "v1",
+    chunks: [
+      {
+        chunk_index: 0,
+        chunk_id: "one",
+        original: "The Numogram maps zones.",
+        translation: "数图映射区域。",
+        success: true,
+        cached: false,
+        repaired: false,
+        quality_report: { passed: true, edited: true },
+      },
+    ],
+  });
+  vi.mocked(api.getTermSuggestions).mockResolvedValue({
+    items: [
+      {
+        term: "Oil",
+        rendering: "石油",
+        book: "Cyclonopedia",
+        scope: "author",
+        source: "human",
+        label: "同作者《Cyclonopedia》·人工纠正",
+      },
+    ],
+  });
+  vi.mocked(api.editChunk).mockResolvedValue({
+    total: 1,
+    revision: "v2",
+    chunks: [],
+    term_changes: [
+      {
+        term: "Numogram",
+        old_rendering: "数图",
+        new_rendering: "数字图",
+        count: 1,
+      },
+    ],
+  });
+  vi.mocked(api.previewTermCorrection).mockResolvedValue({
+    term: "Numogram",
+    old: "数图",
+    new: "数字图",
+    total_segments: 2,
+    total_replacements: 2,
+    items: [
+      {
+        position: 0,
+        seg_id: 1,
+        chunk_index: 0,
+        source: "The Numogram",
+        translation: "数图",
+        preview: "数字图",
+        count: 1,
+      },
+      {
+        position: 4,
+        seg_id: 5,
+        chunk_index: 1,
+        source: "Numogram again",
+        translation: "又是数图",
+        preview: "又是数字图",
+        count: 1,
+      },
+    ],
+    skipped: [
+      { position: 2, seg_id: 3, chunk_index: 0, reason: "already_new" },
+    ],
+    revision: "v2",
+  });
+  vi.mocked(api.applyTermCorrection).mockResolvedValue({
+    replacements: 1,
+    applied_segments: [4],
+  });
+  render(
+    <MemoryRouter initialEntries={["/tasks/demo"]}>
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <App>
+          <Routes>
+            <Route path="/tasks/:taskId" element={<TaskDetail />} />
+          </Routes>
+        </App>
+      </QueryClientProvider>
+    </MemoryRouter>,
+  );
+  const user = userEvent.setup();
+  expect(await screen.findByText("人工编辑过")).toBeInTheDocument();
+  await user.click(await screen.findByText(/来自其他书的术语建议 1 条/));
+  expect(
+    screen.getByText("（同作者《Cyclonopedia》·人工纠正）"),
+  ).toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: "编辑译文" }));
+  await user.click(screen.getByRole("button", { name: "保存审校" }));
+  expect(await screen.findByRole("textbox", { name: "新译名" })).toHaveValue(
+    "数字图",
+  );
+  await user.click(screen.getByRole("button", { name: "预览出现处" }));
+  expect(await screen.findByText("又是数字图")).toBeInTheDocument();
+  await user.click(screen.getByRole("checkbox", { name: "应用到段 1" }));
+  await user.click(screen.getByRole("button", { name: "应用到选中的 1 段" }));
+  expect(api.applyTermCorrection).toHaveBeenCalledWith(
+    "demo",
+    { term: "Numogram", old: "数图", new: "数字图" },
+    [4],
+    "v2",
+  );
 });

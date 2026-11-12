@@ -57,6 +57,9 @@ class TranslationTask:
     glossary_snapshot: dict[str, str] = field(default_factory=dict)
     retry_indices: list[int] = field(default_factory=list)
     quality_summary: dict = field(default_factory=dict)
+    # 书的作者与领域（创建任务时填写，可留空）：决定术语条目能否作为同作者、同领域其他书的建议
+    author: str | None = None
+    domain: str | None = None
 
     def __post_init__(self) -> None:
         if self.progress is None:
@@ -82,4 +85,6 @@ class TranslationTask:
             "execution_id": self.execution_id,
             "artifact_dir": self.artifact_dir,
             "quality_summary": self.quality_summary,
+            "author": self.author,
+            "domain": self.domain,
         }

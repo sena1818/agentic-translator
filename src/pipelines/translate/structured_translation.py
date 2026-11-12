@@ -16,6 +16,7 @@ from dataclasses import dataclass
 
 from ...core.validator import QualityIssue, QualityReport, TranslationValidator
 from ...domain.document import document_ir, inline_codec
+from ...domain.memory.corrections import suggestions_prompt
 from ...domain.models.translation_models import DocumentProfile
 from ...domain.rules.chunk_planning import TextChunk
 from ...domain.rules.glossary_selection import respect_case as _respect_case
@@ -390,7 +391,18 @@ class StructuredChunkTranslator:
         relevant = select_relevant_glossary(
             self.glossary, chunk.text, chunk.context_text, respect_case=_respect_case(self.config)
         )
-        return "\n".join(f"- {en}: {zh}" for en, zh in relevant.items()) or "无"
+        text = "\n".join(f"- {en}: {zh}" for en, zh in relevant.items()) or "无"
+        # 跨书术语建议（同作者、同领域的其他书）：只进提示，不进 self.glossary，因此不参与术语一致性校验
+        suggestions = getattr(self, "term_suggestions", None)
+        if suggestions:
+            hinted = select_relevant_glossary(
+                {s.term: s.rendering for s in suggestions},
+                chunk.text,
+                chunk.context_text,
+                respect_case=_respect_case(self.config),
+            )
+            text += suggestions_prompt(suggestions, hinted)
+        return text
 
     async def _invoke(self, chain, payload) -> tuple[str, int, float]:
         started = {"at": time.monotonic()}

@@ -24,6 +24,7 @@ from ...infrastructure.persistence.task_repository import TaskRepository
 from ...pipelines.postprocess.result_postprocess_pipeline import ResultPostprocessPipeline
 from ...utils.config_loader import get_config
 from .book_index import BookIndexService
+from .correction_memory import CorrectionMemoryService, plan_to_dict, suggestion_to_dict, term_change_to_dict
 from .run_translation_pipeline import RunTranslationPipeline
 from .term_ledger_store import load_ledger, merged_glossary, save_ledger
 
@@ -41,6 +42,7 @@ class TranslationService:
         self.config = config or get_config()
         self.postprocess_pipeline = ResultPostprocessPipeline()
         self.book_index = BookIndexService(self.files.root)
+        self.memory = CorrectionMemoryService(self.files.root, self.book_index, self.glossary_service)
 
     @property
     def db(self):
@@ -50,7 +52,9 @@ class TranslationService:
     def db(self, value: Database):
         self.tasks = TaskRepository(value)
 
-    async def create_task(self, file_content: bytes, filename: str, glossary_id=None, bilingual=False):
+    async def create_task(
+        self, file_content: bytes, filename: str, glossary_id=None, bilingual=False, author=None, domain=None
+    ):
         filename = validate_upload(file_content, filename)
         glossary = {}
         if glossary_id:
@@ -66,6 +70,8 @@ class TranslationService:
             bilingual=bilingual,
             config_snapshot=copy.deepcopy(self.config.config),
             glossary_snapshot=glossary,
+            author=(author or "").strip() or None,
+            domain=(domain or "").strip() or None,
         )
         path = self.files.upload(task)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -160,8 +166,13 @@ class TranslationService:
                 raise ValueError("转换后的文档为空")
             # 已保存的术语账本（可能经人工审阅）补充到用户术语表之后，保证同一本书多次运行译名一致
             saved_ledger = await load_ledger(self.glossary_service, task.filename)
-            glossary = merged_glossary(task.glossary_snapshot or {}, saved_ledger)
+            glossary = self.memory.effective_glossary(task_id, merged_glossary(task.glossary_snapshot or {}, saved_ledger))
             use_case = RunTranslationPipeline(glossary, engine_cls=TranslationEngine, config=config)
+            # 同作者、同领域其他书的术语只作为提示里的参考译名，不并入术语表、不参与术语一致性校验
+            suggestions = self.memory.suggestions(task, known_terms=list(glossary))
+            translator = getattr(use_case.engine, "structured_translator", None)
+            if suggestions and translator is not None:
+                translator.term_suggestions = suggestions
             chunks = use_case.plan_chunks(text)
             structured_chunks = _structured_chunks(chunks)
             if structured_chunks:
@@ -214,6 +225,13 @@ class TranslationService:
                 _, added = await save_ledger(self.glossary_service, task.filename, new_terms)
                 task.quality_summary["ledger_terms"] = len(saved_ledger) + added
                 task.quality_summary["ledger_terms_added"] = added
+            if suggestions:
+                task.quality_summary["term_suggestions"] = len(suggestions)
+            try:
+                ledger = merged_glossary(saved_ledger, new_terms)
+                await asyncio.to_thread(self.memory.record_book_terms, task, task.glossary_snapshot or {}, ledger)
+            except Exception:
+                logger.warning("术语条目记录失败（不影响翻译结果）: %s", task_id, exc_info=True)
             task.status = (
                 TaskStatus.FAILED
                 if len(failures) == len(results) and failures
@@ -412,12 +430,33 @@ class TranslationService:
         selected = next((item for item in records if item["chunk_index"] == index), None)
         if selected is None:
             raise ValueError("块不存在")
+        previous = selected.get("translation") or ""
+        glossary = await self._review_glossary(task)
         selected["translation"] = translation
         selected["success"] = True
-        selected["quality_report"] = (
-            TranslationValidator().validate(selected["original"], translation, task.glossary_snapshot).to_dict()
-        )
-        selected["quality_report"]["reviewed"] = True
+        selected["quality_report"] = TranslationValidator().validate(selected["original"], translation, glossary).to_dict()
+        # 人工编辑过 ≠ 已审校：审校是另一次显式确认（mark_reviewed）
+        selected["quality_report"]["edited"] = True
+        await self._republish(task, records, [index])
+        changes = []
+        if previous and previous != translation:
+            try:
+                changes = await asyncio.to_thread(
+                    self.memory.record_edit, task, index, selected["original"], previous, translation, glossary
+                )
+            except Exception:
+                logger.warning("纠正记录写入失败（不影响审校结果）: %s", task_id, exc_info=True)
+        return {**(await self.get_chunks(task_id)), "term_changes": [term_change_to_dict(c) for c in changes]}
+
+    async def _review_glossary(self, task):
+        """审校时的质检术语表：任务术语表 + 本书账本 + 本书人工纠正（与重译时一致）。"""
+        saved_ledger = await load_ledger(self.glossary_service, task.filename)
+        base = merged_glossary(task.glossary_snapshot or {}, saved_ledger)
+        return await asyncio.to_thread(self.memory.effective_glossary, task.task_id, base)
+
+    async def _republish(self, task, records, changed):
+        """把改过的记录渲染到新的产物目录并以 CAS 发布，再更新改动块的全书索引。"""
+        task_id = task.task_id
         results = [TranslationResult(**item) for item in records]
         new_dir = self.files.root / "results" / "runs" / task_id / f"review-{uuid.uuid4().hex}"
         new_dir.mkdir(parents=True)
@@ -425,15 +464,103 @@ class TranslationService:
         summary = self._summary(results, new_dir, task_id)
         if not await self.db.replace_artifacts(task_id, task.artifact_dir, str(new_dir), summary):
             raise ValueError("结果已更新，请刷新后再编辑")
-        edited = next(result for result in results if result.chunk_index == index)
+        task.artifact_dir = str(new_dir)
+        translations = {result.chunk_index: result.translation for result in results if result.chunk_index in changed}
 
         def reindex():
             chunks = self._plan_from_artifacts(task, new_dir)
-            if chunks:
-                self.book_index.update_chunks(task_id, chunks, {index: edited.translation})
+            if chunks and translations:
+                self.book_index.update_chunks(task_id, chunks, translations)
 
         await self._update_index(task_id, reindex)
+        return new_dir
+
+    async def _reviewable_task(self, task_id, revision):
+        task = await self.tasks.get(task_id)
+        if not task or task.status not in {TaskStatus.COMPLETED, TaskStatus.PARTIAL_SUCCESS, TaskStatus.FAILED}:
+            raise ValueError("任务执行结束后才能审校")
+        if revision != task.artifact_dir:
+            raise ValueError("结果已更新，请刷新后再编辑")
+        return task
+
+    async def mark_reviewed(self, task_id, index, revision, reviewed=True):
+        """标记某块已审校（与"人工编辑过"分开）。"""
+        task = await self._reviewable_task(task_id, revision)
+        records = self.files.records(task)
+        selected = next((item for item in records if item["chunk_index"] == index), None)
+        if selected is None:
+            raise ValueError("块不存在")
+        selected.setdefault("quality_report", {})["reviewed"] = bool(reviewed)
+        await self._republish(task, records, [])
         return await self.get_chunks(task_id)
+
+    # ------------------------------------------------------------------ #
+    # 纠正记忆：书内传播与跨书建议
+    # ------------------------------------------------------------------ #
+
+    async def preview_term_correction(self, task_id, term, old, new):
+        """改一个译名前先看：全书哪些段的原文含该术语、译文还在用旧译名，替换后是什么样。"""
+        task = await self._indexed_task(task_id)
+        glossary = await self._review_glossary(task)
+        plan = await asyncio.to_thread(self.memory.plan, task_id, term, old, new, glossary)
+        return {**plan_to_dict(plan), "revision": task.artifact_dir}
+
+    async def apply_term_correction(self, task_id, term, old, new, positions=None, revision=None, scope=None):
+        """把预览中选中的段批量改成新译名，重新质检改动的块并发布；同时记下纠正与术语条目。"""
+        task = await self._reviewable_task(task_id, revision)
+        glossary = await self._review_glossary(task)
+        plan = await asyncio.to_thread(self.memory.plan, task_id, term, old, new, glossary)
+        chunks = await asyncio.to_thread(self._plan_from_artifacts, task, Path(task.artifact_dir))
+        if not chunks:
+            raise ValueError("该任务没有结构化结果，无法定位到段")
+        records = self.files.records(task)
+        edits, applied = await asyncio.to_thread(self.memory.apply, plan, chunks, records, positions)
+        if not edits:
+            raise ValueError("没有可替换的段")
+        entry = await asyncio.to_thread(self.memory.record_term_decision, task, plan, applied, scope)
+        # 新译名记入本书术语后再质检：改动的块按新译名检查
+        glossary = await self._review_glossary(task)
+        validator = TranslationValidator()
+        by_index = {record["chunk_index"]: record for record in records}
+        for edit in edits:
+            record = by_index[edit.chunk_index]
+            record["translation"] = edit.translation
+            report = validator.validate(record["original"], edit.translation, glossary).to_dict()
+            report["edited"] = True
+            report["propagated"] = plan.term
+            record["quality_report"] = report
+        await self._republish(task, records, [edit.chunk_index for edit in edits])
+        return {
+            "term": plan.term,
+            "old": plan.old_rendering,
+            "new": plan.new_rendering,
+            "scope": entry.scope,
+            "applied_segments": applied,
+            "replacements": sum(edit.replacements for edit in edits),
+            "chunks": [
+                {
+                    "chunk_index": edit.chunk_index,
+                    "replacements": edit.replacements,
+                    "method": edit.method,
+                    "passed": by_index[edit.chunk_index]["quality_report"]["passed"],
+                }
+                for edit in edits
+            ],
+        }
+
+    async def term_suggestions(self, task_id):
+        """这本书能看到的跨书术语建议（同作者、同领域的其他书），每条标明来源。"""
+        task = await self.tasks.get(task_id)
+        if task is None:
+            raise ValueError("任务不存在")
+        glossary = await self._review_glossary(task)
+        suggestions = await asyncio.to_thread(self.memory.suggestions, task, list(glossary))
+        return {"author": task.author, "domain": task.domain, "items": [suggestion_to_dict(s) for s in suggestions]}
+
+    async def task_corrections(self, task_id, limit=100):
+        if await self.tasks.get(task_id) is None:
+            raise ValueError("任务不存在")
+        return {"items": await asyncio.to_thread(self.memory.corrections, task_id, limit)}
 
     # ------------------------------------------------------------------ #
     # 全书索引查询
@@ -535,6 +662,7 @@ class TranslationService:
                 shutil.rmtree(directory)
         (self.files.root / "results" / "downloads" / f"{task_id}.assets.zip").unlink(missing_ok=True)
         self.book_index.delete(task_id)
+        self.memory.delete(task_id)
         return True
 
 

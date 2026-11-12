@@ -20,4 +20,6 @@ export interface TranslationTask {
   updated_at: string;
   stage: string;
   quality_summary: Record<string, number>;
+  author: string | null;
+  domain: string | null;
 }

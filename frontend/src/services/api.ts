@@ -55,6 +55,7 @@ export const createTranslationTask = async (
   file: File,
   glossaryId?: string,
   bilingual: boolean = false,
+  book: { author?: string; domain?: string } = {},
 ): Promise<TranslationTask> => {
   const formData = new FormData();
   formData.append("file", file);
@@ -62,6 +63,8 @@ export const createTranslationTask = async (
     formData.append("glossary_id", glossaryId);
   }
   formData.append("bilingual", String(bilingual));
+  if (book.author?.trim()) formData.append("author", book.author.trim());
+  if (book.domain?.trim()) formData.append("domain", book.domain.trim());
 
   const response = await apiClient.post<TranslationTask>(
     "/api/translation/tasks",
@@ -273,7 +276,12 @@ export interface ChunkResult {
   repaired: boolean;
   quality_report: {
     passed?: boolean;
+    /** 人工编辑过（保存过译文） */
+    edited?: boolean;
+    /** 已审校（显式标记，与编辑过分开） */
     reviewed?: boolean;
+    /** 由书内传播改过的术语 */
+    propagated?: string;
     issues?: Array<{
       kind: string;
       severity: string;
@@ -304,17 +312,100 @@ export const getChunks = async (id: string, skip = 0): Promise<ChunkPage> =>
       params: { skip, limit: 10 },
     })
   ).data;
+/** 人工编辑里识别出的译名纠正（改掉的正是某个术语的译名） */
+export interface TermChange {
+  term: string;
+  old_rendering: string;
+  new_rendering: string;
+  count: number;
+}
 export const editChunk = async (
   id: string,
   index: number,
   translation: string,
   revision: string | null,
+): Promise<ChunkPage & { term_changes?: TermChange[] }> =>
+  (
+    await apiClient.put(`/api/translation/tasks/${id}/chunks/${index}`, {
+      translation,
+      revision,
+    })
+  ).data;
+export const markReviewed = async (
+  id: string,
+  index: number,
+  revision: string | null,
+  reviewed = true,
 ) => {
-  await apiClient.put(`/api/translation/tasks/${id}/chunks/${index}`, {
-    translation,
+  await apiClient.post(`/api/translation/tasks/${id}/chunks/${index}/review`, {
     revision,
+    reviewed,
   });
 };
+export interface PropagationItem {
+  position: number;
+  seg_id: number | null;
+  chunk_index: number;
+  source: string;
+  translation: string;
+  preview: string;
+  count: number;
+}
+export interface PropagationPreview {
+  term: string;
+  old: string;
+  new: string;
+  total_segments: number;
+  total_replacements: number;
+  items: PropagationItem[];
+  skipped: Array<{
+    position: number;
+    seg_id: number | null;
+    chunk_index: number;
+    reason: string;
+  }>;
+  revision: string | null;
+}
+export interface TermCorrection {
+  term: string;
+  old: string;
+  new: string;
+}
+export const previewTermCorrection = async (
+  id: string,
+  correction: TermCorrection,
+): Promise<PropagationPreview> =>
+  (
+    await apiClient.post(
+      `/api/translation/tasks/${id}/corrections/preview`,
+      correction,
+    )
+  ).data;
+export const applyTermCorrection = async (
+  id: string,
+  correction: TermCorrection,
+  positions: number[],
+  revision: string | null,
+): Promise<{ replacements: number; applied_segments: number[] }> =>
+  (
+    await apiClient.post(`/api/translation/tasks/${id}/corrections/apply`, {
+      ...correction,
+      positions,
+      revision,
+    })
+  ).data;
+export interface TermSuggestion {
+  term: string;
+  rendering: string;
+  book: string;
+  scope: string;
+  source: string;
+  label: string;
+}
+export const getTermSuggestions = async (
+  id: string,
+): Promise<{ items: TermSuggestion[] }> =>
+  (await apiClient.get(`/api/translation/tasks/${id}/term-suggestions`)).data;
 export const errorText = (error: unknown): string =>
   axios.isAxiosError(error)
     ? typeof error.response?.data?.detail === "string"

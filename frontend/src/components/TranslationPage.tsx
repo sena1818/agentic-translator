@@ -25,6 +25,8 @@ export default function TranslationPage() {
   const [dragging, setDragging] = useState(false);
   const [glossary, setGlossary] = useState("");
   const [bilingual, setBilingual] = useState(true);
+  const [author, setAuthor] = useState("");
+  const [domain, setDomain] = useState("");
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
@@ -49,7 +51,10 @@ export default function TranslationPage() {
   });
   const create = useMutation({
     mutationFn: () =>
-      createTranslationTask(file!, glossary || undefined, bilingual),
+      createTranslationTask(file!, glossary || undefined, bilingual, {
+        author,
+        domain,
+      }),
     onSuccess: (task) => {
       setFile(null);
       client.invalidateQueries({ queryKey: ["tasks"] });
@@ -184,6 +189,26 @@ export default function TranslationPage() {
                 </button>
               </p>
             )}
+            <label className="field-label" htmlFor="book-author">
+              作者（可选）
+            </label>
+            <input
+              id="book-author"
+              className="text-input"
+              placeholder="同作者的书会互相给出术语建议"
+              value={author}
+              onChange={(e) => setAuthor(e.target.value)}
+            />
+            <label className="field-label" htmlFor="book-domain">
+              领域（可选）
+            </label>
+            <input
+              id="book-domain"
+              className="text-input"
+              placeholder="如 哲学、机器学习"
+              value={domain}
+              onChange={(e) => setDomain(e.target.value)}
+            />
             <label className="toggle-row">
               <span className="toggle-info">
                 <span className="toggle-name">双语对照</span>

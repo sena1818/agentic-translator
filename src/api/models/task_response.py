@@ -18,3 +18,5 @@ class TaskResponse(BaseModel):
     updated_at: str
     stage: str
     quality_summary: dict[str, int]
+    author: str | None = None
+    domain: str | None = None
