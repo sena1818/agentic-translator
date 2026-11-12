@@ -136,7 +136,14 @@ multi_agent:
   analyst_max_chars: 12000
   analyst_max_sections: 12
   analyst_max_term_hints: 12
-  # 术语账本：翻译前统一全书反复出现的专名译名（一次额外调用），见 src/pipelines/glossary/term_ledger.py
+  # 术语账本：翻译前统一全书反复出现的专名与自造概念译名（分批的额外调用），见 src/pipelines/glossary/term_ledger.py
   term_ledger:
     enabled: true
-    max_terms: 120
+    sources: [proper, keyness, structure]  # 专名 / 关键度（小写自造概念词）/ 强调·引号·标题
+    max_proper: 120           # 专名一路：按次数取前 N 条（与旧做法相同）
+    max_keyness: 80           # 关键度一路：专名之外最多补 N 条
+    max_structure: 40         # 结构一路：前两路之外最多补 N 条
+    max_terms: 240            # 合并后的总上限
+    contexts: 3               # 每个候选附全书中差异较大的上下文数；有歧义的多给一处
+    batch_size: 60            # 每次模型调用定多少条
+    defer_ambiguous: false    # true：有歧义的候选不进账本，留给术语 agent（#18）

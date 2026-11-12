@@ -593,7 +593,7 @@ def test_term_ledger_unifies_names_without_touching_caller_glossary(tmp_path):
 
     def analyst(prompt_value):
         text = prompt_value.to_string()
-        if "候选专名" in text:
+        if "候选术语" in text:
             ledger_calls.append(1)
             return (
                 '{"terms": [{"term": "Parsani", "translation": "帕萨尼", "keep": true},'

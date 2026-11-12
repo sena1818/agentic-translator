@@ -278,11 +278,12 @@ class TranslationPromptBuilder:
         return ChatPromptTemplate.from_template(template)
 
     def build_term_ledger_prompt(self) -> ChatPromptTemplate:
-        """术语账本：为全书反复出现的专名统一译名。"""
+        """术语账本：为全书反复出现的专名与作者自造概念统一译名。"""
         template = f"""{self.glossary_extractor_role}
 
-下面是从整本书中自动抽取的、反复出现但尚未收入术语表的候选专名，每条附首次出现的上下文。
-请为需要全书统一译法的条目给出唯一译名，保证同一个名字在几百个片段里始终译得一样。
+下面是从整本书中自动抽取的、反复出现但尚未收入术语表的候选术语：大写专名、作者自造或本书特有的概念词
+（可能是小写，如 polytics）、被强调或加引号的词。每条附全书中几处不同位置的上下文。
+请为需要全书统一译法的条目给出唯一译名，保证同一个词在几百个片段里始终译得一样。
 
 输出必须是 JSON 对象，格式如下：
 {{{{
@@ -292,12 +293,13 @@ class TranslationPromptBuilder:
 }}}}
 
 要求：
-1. 只保留专有名词。普通英语单词即使首字母大写（如 Gate、Time、Old、Five、State、Book）、无需统一的条目：keep 为 false
-1a. 结合上下文判断词义：同一个词可能是人名而非普通词（如海盗 Captain Mission 中的 Mission 是人名「米申」，不是「使命」）
+1. 保留专有名词和本书特有的概念。普通英语单词即使首字母大写或被强调（如 Gate、Time、Old、Five、State、Book）、无需统一的条目：keep 为 false
+1a. 逐条看完所有上下文再判断词义：同一个词可能是人名而非普通词（如海盗 Captain Mission 中的 Mission 是人名「米申」，不是「使命」）
+1b. 标注"可能有歧义"的条目：各处上下文含义不一致、或看完仍拿不准的，keep 为 false，交给人工
 2. 人名、地名：按通行音译只给中文，如「帕萨尼」；与【已有术语】中的全名保持一致（姓与全名用同一译法）
 3. 自造概念、组织、作品名：用「中文译名 (English)」格式；译名一律用名词形式，不要带「的」（Lemurian 译「利莫里亚」，不是「利莫里亚的」）
 4. 首字母缩写（如 AOE、CCRU）：通常保留原文，translation 写原文本身
-5. 不要输出 JSON 以外的任何文字
+5. term 必须与候选原样一致；不要输出 JSON 以外的任何文字
 
 【文档摘要】:
 {{summary}}
@@ -305,7 +307,7 @@ class TranslationPromptBuilder:
 【已有术语】(必须与之保持一致):
 {{existing_terms}}
 
-【候选专名】:
+【候选术语】:
 {{candidates}}
 """
         return ChatPromptTemplate.from_template(template)

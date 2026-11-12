@@ -122,3 +122,13 @@ translator-repair-bench --max-fix-attempts 1
 导出时对整本书运行的确定性审计（图片、公式、代码、表格、脚注尾注、链接、编号引用、图注），区分翻译引入与原文本身的问题，
 不调用模型。规则、注入检出和 Cyclonopedia 全书结果见 [nontext_audit.md](nontext_audit.md)；对已完成的翻译重跑：
 `python scripts/audit_structured.py <源文件.md> <X.records.json> --config <翻译时的配置> --assets <图片目录>`。
+
+## 12. 术语候选基准（藏起术语表条目后的召回）
+
+```bash
+translator-term-bench --source <书>.md --glossary data/glossaries/CPglossary.json --out docs/evals/results
+```
+
+把人工维护的术语表按条目轮流分成两折，每折藏起一半、另一半作为已有术语表，看候选能找回多少被藏起的条目；
+召回只在"书里至少出现 2 次"的条目上算。同时报告候选数量、各来源命中、歧义标记、已记录误判（专名被拆成碎词）
+是否回退，以及账本提示的 token 粗估。不调用模型。结果与读数见 [term_candidates.md](term_candidates.md)。
