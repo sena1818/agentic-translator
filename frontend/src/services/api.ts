@@ -440,6 +440,17 @@ export const getTermSuggestions = async (
   id: string,
 ): Promise<{ items: TermSuggestion[] }> =>
   (await apiClient.get(`/api/translation/tasks/${id}/term-suggestions`)).data;
+export interface TermReview {
+  task_id: string;
+  book: string;
+  term: string;
+  reason: string;
+  contexts: string[];
+  evidence: { tool: string; excerpt: string }[];
+  steps: number;
+}
+export const getTermReviews = async (): Promise<TermReview[]> =>
+  (await apiClient.get("/api/translation/term-reviews")).data;
 export const errorText = (error: unknown): string =>
   axios.isAxiosError(error)
     ? typeof error.response?.data?.detail === "string"

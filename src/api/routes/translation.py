@@ -173,6 +173,12 @@ async def list_corrections(task_id: str, limit: int = Query(100, ge=1, le=500)):
     return await service.task_corrections(task_id, limit)
 
 
+@router.get("/term-reviews")
+async def term_reviews(task_id: str | None = None):
+    """术语 agent 转交人工的条目：术语、书名、原因、抽取时的上下文与已查到的证据。"""
+    return await service.term_reviews(task_id)
+
+
 @router.get("/tasks/{task_id}/term-suggestions")
 async def term_suggestions(task_id: str):
     """同作者、同领域其他书的术语建议，每条标明来源书与决定来源。"""

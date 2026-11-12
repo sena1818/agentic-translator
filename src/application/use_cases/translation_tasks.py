@@ -27,6 +27,7 @@ from .book_index import BookIndexService
 from .correction_memory import CorrectionMemoryService, plan_to_dict, suggestion_to_dict, term_change_to_dict
 from .run_translation_pipeline import RunTranslationPipeline
 from .semantic_search import SemanticSearchService
+from .term_agent_store import agent_entries, delete_report, pending_reviews, save_report
 from .term_ledger_store import load_ledger, merged_glossary, save_ledger
 
 logger = logging.getLogger(__name__)
@@ -253,9 +254,19 @@ class TranslationService:
                 task.quality_summary["ledger_terms_added"] = added
             if suggestions:
                 task.quality_summary["term_suggestions"] = len(suggestions)
+            agent_report = getattr(use_case.engine, "term_agent_report", None)
+            if agent_report is not None:
+                usage = agent_report.usage()
+                task.quality_summary["term_agent_decided"] = usage["decided"]
+                task.quality_summary["term_agent_handoffs"] = usage["handoff"]
+                task.quality_summary["term_agent_tokens"] = usage["tokens"]
             try:
                 ledger = merged_glossary(saved_ledger, new_terms)
                 await asyncio.to_thread(self.memory.record_book_terms, task, task.glossary_snapshot or {}, ledger)
+                if agent_report is not None:
+                    # agent 定下的条目带义项与证据段，来源记为术语 agent（人工条目不会被覆盖）
+                    await asyncio.to_thread(save_report, self.files.root, task, agent_report)
+                    await asyncio.to_thread(self.memory.store.upsert_entries, agent_entries(task, agent_report))
             except Exception:
                 logger.warning("术语条目记录失败（不影响翻译结果）: %s", task_id, exc_info=True)
             task.status = (
@@ -611,6 +622,10 @@ class TranslationService:
             self._semantic = SemanticSearchService(self.book_index, build_embedder(self.config))
         return self._semantic
 
+    async def term_reviews(self, task_id=None):
+        """术语 agent 转交人工、待审阅的条目（全部任务或某一任务）。"""
+        return await asyncio.to_thread(pending_reviews, self.files.root, task_id)
+
     async def search_meaning(self, task_id, query, limit=10):
         await self._indexed_task(task_id)
         return await asyncio.to_thread(self.semantic.search, task_id, query, limit)
@@ -702,6 +717,7 @@ class TranslationService:
         (self.files.root / "results" / "downloads" / f"{task_id}.assets.zip").unlink(missing_ok=True)
         self.book_index.delete(task_id)
         self.memory.delete(task_id)
+        delete_report(self.files.root, task_id)
         SemanticSearchService(self.book_index).delete(task_id)  # 删向量缓存不需要加载模型
         return True
 

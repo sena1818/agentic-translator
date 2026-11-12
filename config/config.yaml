@@ -159,3 +159,12 @@ multi_agent:
     max_chapter_chars: 24000  # 长于此的章节切成几部分读
     max_state_chars: 4000     # 带入下一章的累计状态上限（字符）
     profile_max_chars: 1200   # 汇成的文档画像上限（它进每一块的翻译提示；首中尾采样画像约 1k 字符）
+  # 术语 agent（#18）：对有歧义的候选逐条查证（查出现处、已有译法、术语表与账本）后定译名，拿不准的转交人工。
+  # 默认关闭；开启时有歧义的候选不再进一次性账本调用。每条候选最多 max_steps 次模型调用，用量单独统计。
+  # 歧义信号主要来自多路候选（sources 加 keyness / structure 时更多），只抽专名时候选少、歧义也少。
+  term_agent:
+    enabled: false
+    max_items: 40             # 每本书最多查证多少条，其余留在待审清单外（记为 skipped）
+    max_steps: 8              # 每条候选的步数上限（每步一次模型调用）
+    max_tokens: 16000         # 每条候选的 token 上限
+    max_tool_calls: 6         # 每条候选的工具调用上限

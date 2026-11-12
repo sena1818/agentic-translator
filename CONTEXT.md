@@ -84,3 +84,7 @@
 | Agent 追踪 | trace（JSONL） | 每步的输入消息、回复、token、上下文长度、工具调用与结局；可离线回放出相同结局。 |
 | 共享工具 / 工具集 | Shared Tool / ToolSuite | 带 `@shared_tool` 标记的 async 函数（首参 ToolContext），绑定上下文后同一个函数对象同时注册进内部 agent 的 ToolRegistry 和 MCP；参数 schema 由类型注解推出。见 src/application/tools、docs/mcp-server.md。 |
 | 预览 / 确认 | Preview / confirm | 写入类共享工具的约定：不带 confirm=true 只返回将要做的改动与改后质检结果，不改变任何数据；确认后才执行。 |
+| 术语 agent | TermAgent | 翻译前对有歧义的术语候选逐条查证（出现处、已有译法、术语表与账本、关键词/语义找段）后定译名的 agent；默认关闭（multi_agent.term_agent）。见 src/pipelines/glossary/term_agent.py。 |
+| 术语决定 | TermDecision | 术语 agent 对一个候选的结局：decided（一个或多个义项，各带译名、词义、适用范围、证据段）、not_term（普通词）、handoff（转交人工）。只有单一译名的 decided 并入术语表，且不覆盖用户术语表与账本。 |
+| 证据段 | evidence positions | 术语决定引用的全书段号；必须出现在 agent 实际查到的工具输出（"[段 N]"）里，提交时由框架核对。 |
+| 待审清单 | term reviews | 术语 agent 转交人工的条目及其上下文，显示在 Web 术语表页，审阅后在该书术语账本里补译名。 |

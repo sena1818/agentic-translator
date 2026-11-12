@@ -14,6 +14,7 @@ import {
   suggestGlossary,
   errorText,
 } from "../services/api";
+import TermReviewList from "./TermReviewList";
 
 const GlossaryManager: React.FC = () => {
   const { message, modal } = App.useApp();
@@ -256,6 +257,8 @@ const GlossaryManager: React.FC = () => {
       </div>
 
       <div className="rule" />
+
+      <TermReviewList />
 
       {/* ── Main Layout ── */}
       <div className="glossary-layout">

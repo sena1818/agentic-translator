@@ -18,7 +18,9 @@
 | 纠正记忆的术语建议 | #22 | 填写任务的作者 / 领域才会注入 | 不填则不注入 | 每块提示多几行"参考译名" | [correction-memory.md](correction-memory.md) |
 | 阅读遍 | #17 | `multi_agent.reading_pass.enabled` | 关 | 每章一次调用，全书原文多送一遍：Cyclonopedia 39 次调用、约 19–28 万 token（纯翻译的 23–34%，粗估，上下界分别对应笔记为空 / 写满）；画像替换首中尾采样，随每块发送的部分上限 1200 字符，与原画像（约 1k 字符）相当 | [reading_pass.md](evals/reading_pass.md) |
 
-待加入（实现时按同一原则：默认关闭，并在此表填上实测成本）：#18 术语 agent、#21 审校 agent。
+| 术语 agent | #18 | `multi_agent.term_agent.enabled`；`max_items`、`max_steps`、`max_tokens`、`max_tool_calls` 控制上限 | 关 | 每条有歧义的候选最多 `max_steps` 次模型调用、`max_tokens` token（默认 8 次 / 1.6 万）；最坏情况 = `max_items × max_tokens`（默认 64 万）。实际用量未用真实模型测过；运行后写入任务质检摘要 `term_agent_tokens` | [term_agent.md](evals/term_agent.md) |
+
+待加入（实现时按同一原则：默认关闭，并在此表填上实测成本）：#21 审校 agent。
 
 ## 开启全部可选阶段
 

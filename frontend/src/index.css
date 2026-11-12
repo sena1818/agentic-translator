@@ -757,3 +757,11 @@ progress { accent-color:var(--accent); }
 .book-search-source, .book-search-translation { margin: 0 0 6px; line-height: 1.6; overflow-wrap: anywhere; }
 .book-search-source { color: var(--text-2); }
 .book-search-note { font-size: 0.85em; color: var(--text-3); }
+
+/* 术语 agent 转交待审（issue #18） */
+.term-reviews { margin: 0 0 24px; font-size: 14px; }
+.term-reviews > ul { list-style: none; padding: 0; margin: 8px 0 0; }
+.term-reviews > ul > li { padding: 8px 0; border-bottom: 1px solid var(--border); }
+.term-reviews ol { margin: 6px 0 0; padding-left: 20px; color: var(--text-2); }
+.term-review-hint { color: var(--text-3); margin: 6px 0; }
+.term-review-source { margin-left: 8px; color: var(--text-3); font-size: 0.9em; }

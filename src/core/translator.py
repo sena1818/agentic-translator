@@ -502,13 +502,16 @@ class TranslationEngine:
         用户术语表优先，账本只补充缺失条目；各组件持有同一 dict，原地合并即刻生效。
         """
         self.term_ledger = {}
+        self.term_agent_report = None
         getter = getattr(self.config, "get", None)
         if not (getter and getter("multi_agent.enabled", True) and getter("multi_agent.term_ledger.enabled")):
             return
+        from ..pipelines.glossary.term_agent import TermAgentReport, TermAgentSettings
         from ..pipelines.glossary.term_ledger import TermLedgerBuilder
 
         reading = getattr(self, "reading_result", None)
         reading_terms = reading.concepts if reading is not None else None
+        agent_settings = TermAgentSettings.from_config(self.config)
         key = "ledger:" + hashlib.sha256(
             (
                 LEDGER_VERSION
@@ -517,24 +520,56 @@ class TranslationEngine:
                 + str(getattr(self.config, "prompt_fingerprint", ""))
                 + str(self.config.get("multi_agent.term_ledger", {}))
                 + json.dumps(reading_terms or [], ensure_ascii=False)
+                # 术语 agent 关闭时缓存键与旧版相同，已有账本缓存照常命中
+                + (str(self.config.get("multi_agent.term_agent", {})) if agent_settings.enabled else "")
             ).encode()
         ).hexdigest()
         saved = await self.cache.get_profile(key) if hasattr(self.cache, "get_profile") else None
         if saved is not None:
             ledger = saved.get("terms", {})
+            if saved.get("agent"):
+                self.term_agent_report = TermAgentReport.from_dict(saved["agent"])
         else:
-            builder = TermLedgerBuilder(self.llm_analyst, self.config, self.prompt_builder)
+            builder = TermLedgerBuilder(
+                self.llm_analyst, self.config, self.prompt_builder, defer_ambiguous=True if agent_settings.enabled else None
+            )
             builder.reading_terms = reading_terms
             ledger = await builder.build(text, self.glossary, self.document_profile.summary, chunks)
             self.term_candidates = builder.candidates
             self.deferred_terms = builder.deferred
             self.term_ledger_usage = builder.usage.as_dict()
-            if ledger and hasattr(self.cache, "set_profile"):
-                await self.cache.set_profile(key, {"terms": ledger})
+            if agent_settings.enabled and builder.deferred and builder.index is not None:
+                ledger = await self._run_term_agent(builder, ledger, agent_settings)
+            payload = {"terms": ledger}
+            if self.term_agent_report is not None:
+                payload["agent"] = self.term_agent_report.to_dict()
+            if (ledger or self.term_agent_report is not None) and hasattr(self.cache, "set_profile"):
+                await self.cache.set_profile(key, payload)
         self.term_ledger = {term: zh for term, zh in ledger.items() if term not in self.glossary}
         self.glossary.update(self.term_ledger)
         if self.term_ledger:
             logger.info("术语账本：新增 %s 条统一译名", len(self.term_ledger))
+
+    async def _run_term_agent(self, builder, ledger: dict, settings) -> dict:
+        """术语 agent 查证账本留下的有歧义候选；只并入单一译名、且不与用户术语表和账本冲突的条目。
+
+        agent 出错不影响翻译：记日志后沿用一次性账本的结果。
+        """
+        from ..infrastructure.agent import RunnableChatModel
+        from ..pipelines.glossary.term_agent import TermAgent
+
+        suggestions = [
+            (item.term, item.rendering, item.label)
+            for item in getattr(getattr(self, "structured_translator", None), "term_suggestions", None) or []
+        ]
+        agent = TermAgent(RunnableChatModel(self.llm_analyst, run_name="term-agent-step"), settings)
+        try:
+            report = await agent.run(builder.deferred, builder.index, self.glossary, ledger, suggestions=suggestions)
+        except Exception:
+            logger.warning("术语 agent 运行失败，沿用一次性账本的结果", exc_info=True)
+            return ledger
+        self.term_agent_report = report
+        return {**ledger, **report.updates(self.glossary, ledger)}
 
     async def _process_one_chunk(
         self, chunk: TextChunk, output_manager: OutputManager, callback: Callable | None

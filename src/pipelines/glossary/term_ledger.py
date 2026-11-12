@@ -120,10 +120,13 @@ def format_candidate(candidate: TermCandidate) -> str:
 
 
 class TermLedgerBuilder:
-    def __init__(self, llm, config, prompt_builder: TranslationPromptBuilder):
+    def __init__(self, llm, config, prompt_builder: TranslationPromptBuilder, defer_ambiguous: bool | None = None):
         self.llm = llm
         self.config = config
         self.prompt_builder = prompt_builder
+        # None 时按 multi_agent.term_ledger.defer_ambiguous；术语 agent 开启时由调用方强制为 True
+        self.defer_ambiguous = defer_ambiguous
+        self.index: BookIndex | None = None  # collect 时建的全书索引，供术语 agent 查证
         self.candidates: list[TermCandidate] = []
         self.deferred: list[TermCandidate] = []  # 有歧义、留给术语 agent 的候选
         self.reading_terms: list[tuple[str, int]] | None = None  # 阅读遍记下的概念（开启阅读遍时由引擎设置）
@@ -143,6 +146,7 @@ class TermLedgerBuilder:
 
     def collect(self, text: str, glossary: dict[str, str], chunks: Sequence | None = None) -> list[TermCandidate]:
         index, cues = prepare_sources(text, chunks)
+        self.index = index
         return gather_candidates(
             index, glossary, text=text, cues=cues, config=source_config(self.config), reading=self.reading_terms
         )
@@ -153,7 +157,10 @@ class TermLedgerBuilder:
         """返回 {原文: 统一译名}；无候选或调用失败时返回空表（翻译照常进行）。"""
         candidates = self.collect(text, glossary, chunks)
         self.candidates = candidates
-        if self._get("multi_agent.term_ledger.defer_ambiguous", False):
+        defer = self.defer_ambiguous
+        if defer is None:
+            defer = self._get("multi_agent.term_ledger.defer_ambiguous", False)
+        if defer:
             self.deferred = [candidate for candidate in candidates if candidate.ambiguous]
             candidates = [candidate for candidate in candidates if not candidate.ambiguous]
         self.usage = LedgerUsage(

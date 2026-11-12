@@ -1,0 +1,8 @@
+{
+  "description": "整本书实测中一次性术语账本定错过的译名（见 docs/evals/results/structured_gemini.md）。基准里这些词若被定成 wrong 中的译名并作为全书统一译名，记为误判。只记录了错的写法，没有人工给出的标准答案。",
+  "items": [
+    {"book": "Ccru", "term": "Mission", "wrong": ["使命"], "note": "海盗 Captain Mission 的名字，不是普通词 mission"},
+    {"book": "Ccru", "term": "Gates", "wrong": ["盖茨"], "note": "数字图（Numogram）里的 Gates，不是人名 Bill Gates"},
+    {"book": "Ccru", "term": "Centauri", "wrong": ["半人马"], "note": "天体名（Alpha Centauri），不是神话里的半人马"}
+  ]
+}
