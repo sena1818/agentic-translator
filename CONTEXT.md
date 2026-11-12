@@ -88,3 +88,7 @@
 | 术语决定 | TermDecision | 术语 agent 对一个候选的结局：decided（一个或多个义项，各带译名、词义、适用范围、证据段）、not_term（普通词）、handoff（转交人工）。只有单一译名的 decided 并入术语表，且不覆盖用户术语表与账本。 |
 | 证据段 | evidence positions | 术语决定引用的全书段号；必须出现在 agent 实际查到的工具输出（"[段 N]"）里，提交时由框架核对。 |
 | 待审清单 | term reviews | 术语 agent 转交人工的条目及其上下文，显示在 Web 术语表页，审阅后在该书术语账本里补译名。 |
+| 审校 agent | ReviewAgent | 翻译后对质检仍标记的问题逐条分诊的 agent：已修 / 已驳回 / 待人工。建在 Agent 运行框架上，工具来自共享工具注册表（src/application/tools/triage.py）。默认关闭（review_agent.enabled）。见 docs/review-agent.md。 |
+| 分诊 / 分诊结局 | Triage / verdict | 对一条被标记问题的处理决定：fixed（修改通过逐类型不退步检查后生效）、dismissed（判为误报，必须写理由）、handoff（拿不准、修改没通过检查、超预算，或该类问题编辑修不了）。 |
+| 约束式编辑（审校） | Review edit | 审校 agent 唯一能做的修改：把段译文里恰好出现一次的一段文字换成另一段，改动片段不超过 40 字、不碰标签；由程序应用并重新质检，不能整段重写。 |
+| 直接转人工 | Direct handoff | 编辑修不了的问题（缺段、截断、结构标签，图片/公式/代码/表格/链接/脚注对不上）不进 agent、不花 token，直接标为待人工。 |

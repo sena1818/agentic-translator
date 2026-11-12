@@ -451,6 +451,52 @@ export interface TermReview {
 }
 export const getTermReviews = async (): Promise<TermReview[]> =>
   (await apiClient.get("/api/translation/term-reviews")).data;
+export interface TriageItem {
+  issue: {
+    issue_id: string;
+    seg_id: number;
+    chunk_index: number;
+    kind: string;
+    severity: string;
+    message: string;
+    origin: string;
+  };
+  verdict: "fixed" | "dismissed" | "handoff";
+  label: string;
+  reason: string;
+  edits: Array<{ from: string; to: string }>;
+  before: string;
+  after: string;
+  by: string;
+  steps: number;
+  tokens: number;
+  tool_calls: number;
+}
+export interface TriageRun {
+  finished_at: string;
+  summary: {
+    issues: number;
+    by_verdict: Record<"fixed" | "dismissed" | "handoff", number>;
+    tokens: number;
+    steps: number;
+    max_tokens_per_issue: number;
+    seconds: number;
+  };
+  results: TriageItem[];
+}
+export const getReviewAgent = async (
+  id: string,
+): Promise<{ enabled: boolean; last_run: TriageRun | null }> =>
+  (await apiClient.get(`/api/translation/tasks/${id}/review-agent`)).data;
+export const runReviewAgent = async (
+  id: string,
+  revision: string | null,
+): Promise<TriageRun> =>
+  (
+    await apiClient.post(`/api/translation/tasks/${id}/review-agent`, {
+      revision,
+    })
+  ).data;
 export const errorText = (error: unknown): string =>
   axios.isAxiosError(error)
     ? typeof error.response?.data?.detail === "string"

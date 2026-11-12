@@ -89,6 +89,16 @@ quality:
 
 # 语义检索（issue #24）：审校页搜索框与 MCP 工具 search_book_by_meaning 按意思找原话。
 # 段级关键词（BM25）+ 向量混合排序；未配置向量模型时为仅关键词排序，并在结果中提示。
+# 审校 agent（issue #21）：对翻译后仍被标记的问题分诊——能修的修、误报的驳回、拿不准的转人工。
+# 默认关闭；开启后在任务详情页手动运行，每条问题的步数、token、工具调用都有上限，成本单独统计。
+# 用审校员（checker）模型。见 docs/review-agent.md 与 docs/cost-switches.md。
+review_agent:
+  enabled: false
+  max_issues: 200        # 一次最多交给 agent 的问题数，其余留给人工
+  max_steps: 8           # 每条问题的步数上限
+  max_tokens: 12000      # 每条问题的 token 上限
+  max_tool_calls: 6      # 每条问题的工具调用上限
+
 semantic_search:
   embedder: none            # none | openai（OpenAI 兼容 /v1/embeddings）| local（本机 transformers，仅读本地缓存）
   model: null               # openai 例：BAAI/bge-m3（多语言）；local 例：BAAI/bge-small-en-v1.5（仅英文）

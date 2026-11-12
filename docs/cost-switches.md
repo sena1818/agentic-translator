@@ -17,10 +17,8 @@
 | 非文字审计 | #19 | — | 开 | 不调用模型（整本约 2 秒） | [nontext_audit.md](evals/nontext_audit.md) |
 | 纠正记忆的术语建议 | #22 | 填写任务的作者 / 领域才会注入 | 不填则不注入 | 每块提示多几行"参考译名" | [correction-memory.md](correction-memory.md) |
 | 阅读遍 | #17 | `multi_agent.reading_pass.enabled` | 关 | 每章一次调用，全书原文多送一遍：Cyclonopedia 39 次调用、约 19–28 万 token（纯翻译的 23–34%，粗估，上下界分别对应笔记为空 / 写满）；画像替换首中尾采样，随每块发送的部分上限 1200 字符，与原画像（约 1k 字符）相当 | [reading_pass.md](evals/reading_pass.md) |
-
+| 审校 agent | #21 | `review_agent.enabled`（开启后在任务详情页手动运行）；`max_issues`、每条问题的 `max_steps` / `max_tokens` / `max_tool_calls` | 关 | 每条进 agent 的问题约 3–4k token（假模型按字符估），单条上限 12k；Cyclonopedia 基线有 53 条会进 agent（另 3 条直接转人工），约 20 万 token，上限约 64 万（粗估，纯翻译约 82 万） | [review_agent.md](evals/review_agent.md) |
 | 术语 agent | #18 | `multi_agent.term_agent.enabled`；`max_items`、`max_steps`、`max_tokens`、`max_tool_calls` 控制上限 | 关 | 每条有歧义的候选最多 `max_steps` 次模型调用、`max_tokens` token（默认 8 次 / 1.6 万）；最坏情况 = `max_items × max_tokens`（默认 64 万）。实际用量未用真实模型测过；运行后写入任务质检摘要 `term_agent_tokens` | [term_agent.md](evals/term_agent.md) |
-
-待加入（实现时按同一原则：默认关闭，并在此表填上实测成本）：#21 审校 agent。
 
 ## 开启全部可选阶段
 
@@ -39,6 +37,8 @@ quality:
   semantic_check:
     enabled: true
     use_model: true
+review_agent:
+  enabled: true
 ```
 
 前后对比时，"旧版"与"新版·默认"、"新版·全开"三组分别跑，才能分开说明默认配置和可选阶段各自带来的变化与代价。

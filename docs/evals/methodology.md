@@ -132,3 +132,15 @@ translator-term-bench --source <书>.md --glossary data/glossaries/CPglossary.js
 把人工维护的术语表按条目轮流分成两折，每折藏起一半、另一半作为已有术语表，看候选能找回多少被藏起的条目；
 召回只在"书里至少出现 2 次"的条目上算。同时报告候选数量、各来源命中、歧义标记、已记录误判（专名被拆成碎词）
 是否回退，以及账本提示的 token 粗估。不调用模型。结果与读数见 [term_candidates.md](term_candidates.md)。
+
+## 13. 审校 agent 分诊基准（注入错误 + 已知误报）
+
+```bash
+translator-review-bench --out docs/evals/results          # 不需要密钥：现状 vs 脚本化假审校员
+translator-review-bench --model config                    # 用配置里的审校模型（需要密钥）
+```
+
+混合集由 #11 的注入错误（质检能报出的那部分）和 `datasets/review_false_positives.json` 的已知误报组成；
+统计正确修复（修后与原样译文一致）、正确驳回、转交人工、误报被改、真错被驳回的比例，核对每条生效的修改
+都通过了逐类型不退步检查，并给出每条问题的步数与 token。脚本化假审校员知道标准答案、按固定节奏犯错，
+只检验流程与闸门；真实模型的分诊能力要用 `--model config` 测。结果与读数见 [review_agent.md](review_agent.md)。

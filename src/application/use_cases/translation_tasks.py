@@ -25,6 +25,7 @@ from ...pipelines.postprocess.result_postprocess_pipeline import ResultPostproce
 from ...utils.config_loader import get_config
 from .book_index import BookIndexService
 from .correction_memory import CorrectionMemoryService, plan_to_dict, suggestion_to_dict, term_change_to_dict
+from .review_triage import ReviewTriageService
 from .run_translation_pipeline import RunTranslationPipeline
 from .semantic_search import SemanticSearchService
 from .term_agent_store import agent_entries, delete_report, pending_reviews, save_report
@@ -60,6 +61,7 @@ class TranslationService:
         self.postprocess_pipeline = ResultPostprocessPipeline()
         self.book_index = BookIndexService(self.files.root)
         self.memory = CorrectionMemoryService(self.files.root, self.book_index, self.glossary_service)
+        self.review = ReviewTriageService(self.files.root, self.book_index)
         self._semantic: SemanticSearchService | None = None
 
     @property
@@ -585,6 +587,32 @@ class TranslationService:
             ],
         }
 
+    # ------------------------------------------------------------------ #
+    # 审校 agent：对质检后仍被标记的问题分诊（默认关闭，review_agent.enabled）
+    # ------------------------------------------------------------------ #
+
+    async def review_agent_status(self, task_id):
+        task = await self.tasks.get(task_id)
+        if task is None:
+            raise ValueError("任务不存在")
+        enabled = bool(self._task_config(task).get("review_agent.enabled", False))
+        return {"enabled": enabled, "last_run": self.review.load(task_id)}
+
+    async def run_review_agent(self, task_id, revision):
+        """分诊并发布：已修的写回块译文，结局写回各块质检报告，结果与成本另存一份。"""
+        task = await self._reviewable_task(task_id, revision)
+        config = self._task_config(task)
+        if not config.get("review_agent.enabled", False):
+            raise ValueError("审校 agent 未启用（配置 review_agent.enabled）")
+        records = self.files.records(task)
+        glossary = await self._review_glossary(task)
+        audit_path = Path(task.artifact_dir) / f"{task_id}.audit.json" if task.artifact_dir else None
+        audit = json.loads(audit_path.read_text(encoding="utf-8")) if audit_path and audit_path.exists() else None
+        run, changed = await self.review.triage(task_id, config, records, glossary, audit, service=self)
+        if run.results:
+            await self._republish(task, records, changed)
+        return self.review.save(task_id, run, task.artifact_dir)
+
     async def term_suggestions(self, task_id):
         """这本书能看到的跨书术语建议（同作者、同领域的其他书），每条标明来源。"""
         task = await self.tasks.get(task_id)
@@ -718,6 +746,7 @@ class TranslationService:
         self.book_index.delete(task_id)
         self.memory.delete(task_id)
         delete_report(self.files.root, task_id)
+        self.review.delete(task_id)
         SemanticSearchService(self.book_index).delete(task_id)  # 删向量缓存不需要加载模型
         return True
 
