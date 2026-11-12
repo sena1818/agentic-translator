@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 _CAPITALIZED = r"[A-Z][a-z][A-Za-z’'\-]*"
 _PHRASE_RE = re.compile(rf"(?<![\w’'\-]){_CAPITALIZED}(?:\s+{_CAPITALIZED}){{0,3}}(?![\w’'\-])")
@@ -200,6 +200,14 @@ class TermCandidate:
     term: str
     count: int
     context: str  # 首次出现处的上下文片段，供模型判断词义
+    sources: tuple[str, ...] = ("proper",)  # 候选来源：proper / keyness / structure（见 term_sources）
+    contexts: list[str] = field(default_factory=list)  # 全书中差异较大的多处上下文
+    ambiguity: list[str] = field(default_factory=list)  # 确定性歧义信号；为空表示无歧义
+    keyness: float | None = None  # 本书频率相对通用英语的对数比（zipf 差）
+
+    @property
+    def ambiguous(self) -> bool:
+        return bool(self.ambiguity)
 
 
 def _covered(term: str, glossary_lower: set[str]) -> bool:

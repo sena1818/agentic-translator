@@ -35,7 +35,7 @@ from .validator import QualityReport, TranslationValidator
 logger = logging.getLogger(__name__)
 
 # 账本候选规则或提示词变化时递增，避免断点续跑复用旧版账本
-LEDGER_VERSION = "ledger-v3"
+LEDGER_VERSION = "ledger-v4"
 
 
 class TranslationEngine:
@@ -466,7 +466,7 @@ class TranslationEngine:
         else:
             self.document_profile = DocumentProfile.empty()
 
-        await self._prepare_term_ledger(text)
+        await self._prepare_term_ledger(text, chunks)
 
         if progress_callback:
             await progress_callback(
@@ -476,7 +476,7 @@ class TranslationEngine:
                 }
             )
 
-    async def _prepare_term_ledger(self, text: str) -> None:
+    async def _prepare_term_ledger(self, text: str, chunks=None) -> None:
         """术语账本：为全书反复出现、术语表未覆盖的专名统一译名，并入本次运行的术语表。
 
         结果按 (源文, 术语表, Prompt 指纹) 缓存，断点续跑时译名不变、块缓存仍然命中。
@@ -501,9 +501,11 @@ class TranslationEngine:
         if saved is not None:
             ledger = saved.get("terms", {})
         else:
-            ledger = await TermLedgerBuilder(self.llm_analyst, self.config, self.prompt_builder).build(
-                text, self.glossary, self.document_profile.summary
-            )
+            builder = TermLedgerBuilder(self.llm_analyst, self.config, self.prompt_builder)
+            ledger = await builder.build(text, self.glossary, self.document_profile.summary, chunks)
+            self.term_candidates = builder.candidates
+            self.deferred_terms = builder.deferred
+            self.term_ledger_usage = builder.usage.as_dict()
             if ledger and hasattr(self.cache, "set_profile"):
                 await self.cache.set_profile(key, {"terms": ledger})
         self.term_ledger = {term: zh for term, zh in ledger.items() if term not in self.glossary}

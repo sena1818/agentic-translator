@@ -1,0 +1,278 @@
+{
+  "glossary_entries": 72,
+  "reachable_entries": 53,
+  "folds": 2,
+  "segments": 1038,
+  "structure_cues": 951,
+  "methods": {
+    "baseline": {
+      "candidates_per_fold": [
+        120,
+        120
+      ],
+      "found": 18,
+      "recall_all": 0.25,
+      "found_reachable": 18,
+      "recall_reachable": 0.3396,
+      "found_entries": {
+        "Assyrian": "Assyrian",
+        "Decay": "Decay",
+        "Deleuze": "Deleuze",
+        "Dust": "Dust",
+        "Earth": "Earth",
+        "Guattari": "Guattari",
+        "Hamid Parsani": "Hamid Parsani",
+        "Hidden Writing": "Hidden Writing",
+        "Hyperstition": "Hyperstition",
+        "Lovecraft": "Lovecraft",
+        "Middle East": "Middle East",
+        "Nergal": "Nergal",
+        "Oil": "Oil",
+        "Pazuzu": "Pazuzu",
+        "Petroleum": "Petroleum",
+        "Sun": "Sun",
+        "Tellurian": "Tellurian",
+        "Xerodrome": "Xerodrome"
+      }
+    },
+    "multi_source": {
+      "candidates_per_fold": [
+        240,
+        240
+      ],
+      "found": 29,
+      "recall_all": 0.4028,
+      "found_reachable": 29,
+      "recall_reachable": 0.5472,
+      "found_entries": {
+        "Assyrian": "Assyrian",
+        "Decay": "Decay",
+        "Deleuze": "Deleuze",
+        "Dust": "Dust",
+        "Dustism": "dustism",
+        "Earth": "Earth",
+        "Fog of War": "fog of war",
+        "Guattari": "Guattari",
+        "Hamid Parsani": "Hamid Parsani",
+        "Hidden Writing": "Hidden Writing",
+        "Hole complex": "hole complex",
+        "Horde": "Horde",
+        "Hyperstition": "Hyperstition",
+        "Lovecraft": "Lovecraft",
+        "Middle East": "Middle East",
+        "Monotheism": "monotheism",
+        "Nergal": "Nergal",
+        "Oil": "Oil",
+        "Pazuzu": "Pazuzu",
+        "Petroleum": "Petroleum",
+        "Petropolitics": "petropolitics",
+        "Plot Hole": "plot holes",
+        "Polytics": "polytics",
+        "Radical Openness": "radical openness",
+        "Reza Negarestani": "reza negarestani",
+        "Sun": "Sun",
+        "Tellurian": "Tellurian",
+        "War Machine": "war machines",
+        "Xerodrome": "Xerodrome"
+      }
+    }
+  },
+  "missed_reachable": [
+    "Apocalypse",
+    "Cthulhu",
+    "Cyclonopedia",
+    "Fluid",
+    "Gog and Magog",
+    "Hydrocarbon",
+    "Inauthenticity",
+    "Incognitum Hactenus",
+    "Lubricant",
+    "Mesopotamia",
+    "Nomadic",
+    "Paranoia",
+    "Porosity",
+    "Putrefaction",
+    "Schizophrenia",
+    "Solar",
+    "Solar Capitalism",
+    "Solid",
+    "Spiral",
+    "Swarm",
+    "Tellurian Insider",
+    "Tiamat",
+    "Vortex",
+    "War on Terror"
+  ],
+  "newly_found": [
+    "Dustism",
+    "Fog of War",
+    "Hole complex",
+    "Horde",
+    "Monotheism",
+    "Petropolitics",
+    "Plot Hole",
+    "Polytics",
+    "Radical Openness",
+    "Reza Negarestani",
+    "War Machine"
+  ],
+  "lost": [],
+  "hidden_hits_by_source": {
+    "proper": 18,
+    "keyness": 21,
+    "structure": 6
+  },
+  "full_run": {
+    "baseline_candidates": 120,
+    "candidates": 240,
+    "by_source": {
+      "proper": 120,
+      "keyness": 126,
+      "structure": 58
+    },
+    "ambiguous": 93,
+    "ambiguity_signals": {
+      "mixed_case": 59,
+      "common_word": 53,
+      "sentence_initial": 6
+    },
+    "mean_contexts": 3.33,
+    "baseline_ledger": {
+      "calls": 1,
+      "estimated_prompt_tokens": 6189
+    },
+    "ledger": {
+      "calls": 4,
+      "estimated_prompt_tokens": 42577
+    },
+    "lowercase_concepts": [
+      {
+        "term": "warmachine",
+        "count": 176,
+        "keyness": 4.72
+      },
+      {
+        "term": "cross of akht",
+        "count": 34,
+        "keyness": 5.55
+      },
+      {
+        "term": "ibn maimun",
+        "count": 20,
+        "keyness": 5.32
+      },
+      {
+        "term": "occultural",
+        "count": 32,
+        "keyness": 5.53
+      },
+      {
+        "term": "polytical",
+        "count": 32,
+        "keyness": 5.53
+      },
+      {
+        "term": "petropolitical undercurrents",
+        "count": 11,
+        "keyness": 5.06
+      },
+      {
+        "term": "petropolitical",
+        "count": 23,
+        "keyness": 5.38
+      },
+      {
+        "term": "defacing the ancient",
+        "count": 35,
+        "keyness": 3.2
+      },
+      {
+        "term": "exteriority",
+        "count": 38,
+        "keyness": 4.51
+      },
+      {
+        "term": "parsani defacing",
+        "count": 9,
+        "keyness": 4.98
+      },
+      {
+        "term": "persia parsani",
+        "count": 8,
+        "keyness": 4.93
+      },
+      {
+        "term": "ungrounding",
+        "count": 17,
+        "keyness": 5.25
+      },
+      {
+        "term": "trison-cell",
+        "count": 16,
+        "keyness": 5.23
+      },
+      {
+        "term": "islamic warmachines",
+        "count": 7,
+        "keyness": 4.87
+      },
+      {
+        "term": "vowelless alphabets",
+        "count": 7,
+        "keyness": 4.87
+      },
+      {
+        "term": "unlife of war",
+        "count": 12,
+        "keyness": 4.01
+      },
+      {
+        "term": "schizotrategy",
+        "count": 14,
+        "keyness": 5.17
+      },
+      {
+        "term": "urbanized war",
+        "count": 26,
+        "keyness": 2.77
+      },
+      {
+        "term": "anglossic qabalah",
+        "count": 6,
+        "keyness": 4.8
+      },
+      {
+        "term": "corkscrewing motion",
+        "count": 6,
+        "keyness": 4.8
+      },
+      {
+        "term": "hyperstition team",
+        "count": 6,
+        "keyness": 4.8
+      },
+      {
+        "term": "occultural meltdown",
+        "count": 6,
+        "keyness": 4.8
+      },
+      {
+        "term": "monotheistic",
+        "count": 50,
+        "keyness": 3.21
+      },
+      {
+        "term": "affordance",
+        "count": 30,
+        "keyness": 3.94
+      },
+      {
+        "term": "poromechanics",
+        "count": 13,
+        "keyness": 5.14
+      }
+    ],
+    "fragments_in_candidates": [],
+    "known_ambiguous": {}
+  }
+}
