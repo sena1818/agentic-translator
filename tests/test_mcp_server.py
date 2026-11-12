@@ -109,6 +109,7 @@ def test_tool_discovery_exposes_full_toolset_with_descriptions():
                 "list_tasks",
                 "cancel_task",
                 "export_result",
+                "search_book_by_meaning",
                 "list_glossaries",
                 "get_glossary",
                 "create_glossary",

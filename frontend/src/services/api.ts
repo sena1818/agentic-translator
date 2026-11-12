@@ -146,6 +146,40 @@ export interface StructureStats {
   epub: string[];
 }
 
+export interface MeaningHit {
+  position: number;
+  seg_id: number | null;
+  section_path: string[];
+  source: string;
+  translation: string | null;
+  score: number;
+  lexical_rank: number | null;
+  vector_rank: number | null;
+  similarity: number | null;
+}
+
+export interface MeaningSearchResult {
+  query: string;
+  /** hybrid：关键词 + 向量；lexical：仅关键词（hint 说明原因） */
+  mode: "hybrid" | "lexical";
+  model: string | null;
+  hint: string;
+  items: MeaningHit[];
+}
+
+/** 按意思检索全书：中英文查询，原文与译文都参与匹配。 */
+export const searchBookByMeaning = async (
+  taskId: string,
+  q: string,
+  limit = 10,
+): Promise<MeaningSearchResult> =>
+  (
+    await apiClient.get<MeaningSearchResult>(
+      `/api/translation/tasks/${taskId}/index/semantic`,
+      { params: { q, limit } },
+    )
+  ).data;
+
 /** 结构化导出统计（缺失图片清单等）；历史任务没有，返回 404。 */
 export const getStructure = async (taskId: string): Promise<StructureStats> => {
   const response = await apiClient.get<StructureStats>(

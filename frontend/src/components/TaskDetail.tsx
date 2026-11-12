@@ -3,6 +3,7 @@ import { App, Pagination } from "antd";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ReactMarkdown from "react-markdown";
+import BookSearch from "./BookSearch";
 import remarkGfm from "remark-gfm";
 import {
   getTaskStatus,
@@ -454,6 +455,7 @@ export default function TaskDetail() {
           onApplied={refresh}
         />
       )}
+      {downloadable && structured && <BookSearch taskId={id} />}
       {!active && (
         <section className="section">
           <div className="section-header">

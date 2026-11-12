@@ -191,6 +191,16 @@ async def search_book(
     return await service.search_book(task_id, q, field, skip, limit)
 
 
+@router.get("/tasks/{task_id}/index/semantic")
+async def search_meaning(
+    task_id: str,
+    q: str = Query(..., min_length=1, max_length=500),
+    limit: int = Query(10, ge=1, le=50),
+):
+    """按意思检索：中英文查询，段级关键词 + 向量混合排序；未配置向量模型时为仅关键词并附提示。"""
+    return await service.search_meaning(task_id, q, limit)
+
+
 @router.get("/tasks/{task_id}/index/occurrences")
 async def term_occurrences(
     task_id: str,

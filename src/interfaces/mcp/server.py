@@ -12,6 +12,7 @@ Desktop）可以把本系统当作可编排的翻译能力节点。
 - list_tasks            分页列出任务
 - cancel_task           取消 pending/processing 任务
 - export_result         取回结果（单语 Markdown / 双语对照）
+- search_book_by_meaning 按意思检索一本书里的原话（中英文查询，只读）
 - list_glossaries       列出术语表
 - get_glossary          查询单个术语表
 - create_glossary       新建术语表
@@ -75,6 +76,7 @@ class TranslatorMCPServer:
         tool(name="list_tasks")(self.list_tasks)
         tool(name="cancel_task")(self.cancel_task)
         tool(name="export_result")(self.export_result)
+        tool(name="search_book_by_meaning")(self.search_book_by_meaning)
         tool(name="list_glossaries")(self.list_glossaries)
         tool(name="get_glossary")(self.get_glossary)
         tool(name="create_glossary")(self.create_glossary)
@@ -223,6 +225,22 @@ class TranslatorMCPServer:
         if result is None:
             raise ValueError(f"任务不存在: {task_id}")
         return result
+
+    async def search_book_by_meaning(self, task_id: str, query: str, limit: int = 10) -> dict:
+        """按意思检索一本已翻译的书：用一句大概的话（中文或英文）找到意思相近的段落。
+
+        原文和译文都参与匹配；返回每段的原文、译文、seg_id（对照阅读器段号，可用于跳转）与排序信号。
+        只读，不修改任何数据。未配置向量模型时为仅关键词排序，mode 为 "lexical" 并在 hint 中说明。
+
+        Args:
+            task_id: 已完成的结构化翻译任务 ID。
+            query: 查询句子，中文或英文均可。
+            limit: 返回条数（1~50）。
+        """
+        if not query.strip():
+            raise ValueError("query 不能为空")
+        await self._ensure_db()
+        return await self.translation_service.search_meaning(task_id, query, max(1, min(limit, 50)))
 
     # ------------------------------------------------------------------ #
     # 术语表工具（与 Web 界面共享 data/glossaries 存储）

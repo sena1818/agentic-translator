@@ -26,6 +26,7 @@ from ...utils.config_loader import get_config
 from .book_index import BookIndexService
 from .correction_memory import CorrectionMemoryService, plan_to_dict, suggestion_to_dict, term_change_to_dict
 from .run_translation_pipeline import RunTranslationPipeline
+from .semantic_search import SemanticSearchService
 from .term_ledger_store import load_ledger, merged_glossary, save_ledger
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,7 @@ class TranslationService:
         self.postprocess_pipeline = ResultPostprocessPipeline()
         self.book_index = BookIndexService(self.files.root)
         self.memory = CorrectionMemoryService(self.files.root, self.book_index, self.glossary_service)
+        self._semantic: SemanticSearchService | None = None
 
     @property
     def db(self):
@@ -217,6 +219,8 @@ class TranslationService:
                 await self._update_index(
                     task_id, lambda: self.book_index.update_records(task_id, structured_chunks, records)
                 )
+                # 语义检索的段向量在翻译完成后生成并缓存（未配置向量模型时跳过）
+                await self._update_index(task_id, lambda: self.semantic.ensure_vectors(task_id))
             failures = [r for r in results if not r.success]
             warnings = [r for r in results if r.success and r.quality_report.get("passed") is False]
             task.quality_summary = self._summary(results, directory, task_id)
@@ -576,6 +580,19 @@ class TranslationService:
         await self._indexed_task(task_id)
         return await asyncio.to_thread(self.book_index.search, task_id, query, field, skip, limit)
 
+    @property
+    def semantic(self) -> SemanticSearchService:
+        """惰性构造：本机向量模型加载较慢，只在第一次用到时加载。"""
+        if self._semantic is None:
+            from ...infrastructure.embeddings import build_embedder
+
+            self._semantic = SemanticSearchService(self.book_index, build_embedder(self.config))
+        return self._semantic
+
+    async def search_meaning(self, task_id, query, limit=10):
+        await self._indexed_task(task_id)
+        return await asyncio.to_thread(self.semantic.search, task_id, query, limit)
+
     async def term_occurrences(self, task_id, term, case_sensitive=False, variants=True, skip=0, limit=20):
         await self._indexed_task(task_id)
         return await asyncio.to_thread(
@@ -663,6 +680,7 @@ class TranslationService:
         (self.files.root / "results" / "downloads" / f"{task_id}.assets.zip").unlink(missing_ok=True)
         self.book_index.delete(task_id)
         self.memory.delete(task_id)
+        SemanticSearchService(self.book_index).delete(task_id)  # 删向量缓存不需要加载模型
         return True
 
 

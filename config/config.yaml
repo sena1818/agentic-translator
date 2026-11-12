@@ -87,6 +87,16 @@ quality:
     base_url: null
     api_key_env: null       # 存放该模型密钥的环境变量名
 
+# 语义检索（issue #24）：审校页搜索框与 MCP 工具 search_book_by_meaning 按意思找原话。
+# 段级关键词（BM25）+ 向量混合排序；未配置向量模型时为仅关键词排序，并在结果中提示。
+semantic_search:
+  embedder: none            # none | openai（OpenAI 兼容 /v1/embeddings）| local（本机 transformers，仅读本地缓存）
+  model: null               # openai 例：BAAI/bge-m3（多语言）；local 例：BAAI/bge-small-en-v1.5（仅英文）
+  base_url: null            # openai 兼容服务地址，如 https://api.siliconflow.cn/v1
+  api_key_env: null         # 存放密钥的环境变量名
+  languages: null           # 模型能处理的语言；默认 openai 为 [en, zh]，local 为 [en]
+  batch_size: 32
+
 # Worker 队列配置
 worker:
   inline_enabled: true
