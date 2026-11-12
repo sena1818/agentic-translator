@@ -61,6 +61,21 @@ def _record(item) -> dict:
     return item if isinstance(item, dict) else item.__dict__
 
 
+# 双语 EPUB 里原文段的样式：小一号、灰色、左侧细线，译文保持正文样式，翻读时一眼能分开。
+# 颜色用半透明而不是固定灰，夜间模式下阅读器换底色时仍然可读。
+BILINGUAL_EPUB_CSS = """
+div.source {
+  margin: 1.2em 0 0.35em;
+  padding-left: 0.8em;
+  border-left: 2px solid rgba(128, 128, 128, 0.45);
+  font-size: 0.86em;
+  line-height: 1.45;
+  opacity: 0.72;
+}
+div.source p { margin: 0.3em 0; text-indent: 0; }
+div.source blockquote { margin: 0.3em 0 0.3em 1.2em; }
+"""
+
 class StructuredExporter:
     def __init__(self, planner: StructuredDocumentPlanner):
         self.planner = planner
@@ -146,17 +161,28 @@ class StructuredExporter:
         return pandoc.blocks_to_markdown(document.translated_ast, StructuredExporter.bilingual_blocks(document)) + "\n"
 
     @staticmethod
-    def bilingual_blocks(document: AssembledDocument) -> list[dict]:
+    def bilingual_blocks(document: AssembledDocument, source_class: str | None = None) -> list[dict]:
+        """原文在前、译文在后的段级对照。
+
+        source_class 为空时原文放进引用块（Markdown 里最通用）；给出类名时放进带该类名的 Div，
+        由 EPUB 样式表单独排版，不与书里本来的引文混在一起。
+        """
+
+        def source(content: list[dict]) -> dict:
+            if source_class is None:
+                return {"t": "BlockQuote", "c": content}
+            return {"t": "Div", "c": [["", [source_class], []], content]}
+
         blocks: list[dict] = []
         for item in document.chunks:
             if item.status == "aligned":
                 for unit, translated in zip(item.structured.units, item.translated_blocks, strict=True):
                     if any(document_ir.is_translatable(c) for c in document_ir.iter_candidates([unit.block])):
-                        blocks.append({"t": "BlockQuote", "c": [_quote_form(unit.block)]})
+                        blocks.append(source([_quote_form(unit.block)]))
                     blocks.append(translated)
             else:
                 # 结构被改动（人工审校改了段落划分）或翻译失败：退化为块级对照
-                blocks.append({"t": "BlockQuote", "c": [_quote_form(unit.block) for unit in item.structured.units]})
+                blocks.append(source([_quote_form(unit.block) for unit in item.structured.units]))
                 blocks.extend(item.translated_blocks)
                 blocks.append({"t": "HorizontalRule"})
         return blocks
@@ -270,14 +296,16 @@ class StructuredExporter:
 
     def _write_epubs(self, document, output_dir, stem, title, bilingual, locator, missing) -> list[str]:
         """仅译文与双语两种 EPUB；生成失败只记日志，不影响其他导出。返回成功写出的变体。"""
-        variants = [("mono", f"{stem}.epub", document.translated_ast["blocks"])]
+        variants = [("mono", f"{stem}.epub", document.translated_ast["blocks"], None)]
         if bilingual:
-            variants.append(("bilingual", f"{stem}.bilingual.epub", self.bilingual_blocks(document)))
+            variants.append(
+                ("bilingual", f"{stem}.bilingual.epub", self.bilingual_blocks(document, "source"), BILINGUAL_EPUB_CSS)
+            )
         written = []
-        for name, filename, blocks in variants:
+        for name, filename, blocks, css in variants:
             try:
                 lost = write_epub(
-                    document.translated_ast, blocks, output_dir / filename, title, locator, _drop_unsafe_raw
+                    document.translated_ast, blocks, output_dir / filename, title, locator, _drop_unsafe_raw, css
                 )
             except Exception:
                 logger.warning("EPUB 导出失败（%s）: %s", name, filename, exc_info=True)

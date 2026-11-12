@@ -12,6 +12,8 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
+from pathlib import Path
 
 READER = "markdown"
 # 输出 Markdown 时：关闭 smart（直接写 “”、——，而不是 "、--- 这类 pandoc 专有转义，GitHub 等渲染器才能正确显示）；
@@ -143,10 +145,12 @@ def blocks_to_epub(
     title: str,
     lang: str = "zh-CN",
     resource_paths: list[str] | None = None,
+    extra_css: str | None = None,
 ) -> None:
     """把块列表写成 EPUB3：按一级标题分章、自动目录、脚注带回链、MathML 公式。
 
     图片路径应已解析为本地绝对路径（或 resource_paths 下的相对路径），pandoc 会把图片打进包里。
+    extra_css 追加在 pandoc 默认 EPUB 样式之后（`--css` 会整份替换默认样式，所以先取出默认样式再拼接）。
     """
     args = [
         "-f",
@@ -166,4 +170,10 @@ def blocks_to_epub(
     if resource_paths:
         args.append("--resource-path=" + os.pathsep.join(resource_paths))
     payload = {"pandoc-api-version": ast_template["pandoc-api-version"], "meta": meta, "blocks": blocks}
-    _run(args, json.dumps(payload, ensure_ascii=False))
+    if not extra_css:
+        _run(args, json.dumps(payload, ensure_ascii=False))
+        return
+    with tempfile.TemporaryDirectory() as tmp:
+        css_path = Path(tmp) / "stylesheet.css"
+        css_path.write_text(_run(["--print-default-data-file", "epub.css"], "") + extra_css, encoding="utf-8")
+        _run([*args, f"--css={css_path}"], json.dumps(payload, ensure_ascii=False))

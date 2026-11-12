@@ -130,7 +130,30 @@ def test_epub_has_toc_images_and_footnote_links(tmp_path, records):
     assert 'epub:type="noteref"' in text and "译:Nick Land" in text  # 脚注引用与脚注内容
 
     bilingual = _epub_text(out / "doc.bilingual.epub")
-    assert "<blockquote>" in bilingual and "译:Hyperstition" in bilingual
+    assert "译:Hyperstition" in bilingual
+
+
+def _epub_css(path: Path) -> str:
+    with zipfile.ZipFile(path) as archive:
+        return "\n".join(archive.read(name).decode("utf-8") for name in archive.namelist() if name.endswith(".css"))
+
+
+def test_bilingual_epub_sets_source_apart_from_translation(tmp_path, records):
+    """原文段放进 class="source" 的容器并单独设样式，不再借用引用块，与书里本来的引文区分开。"""
+    _, out = _export(tmp_path, records)
+    bilingual = _epub_text(out / "doc.bilingual.epub")
+    # 每个原文段紧跟它的译文
+    pairs = re.findall(r'<div class="source">\s*<p>(.*?)</p>\s*</div>\s*<p>(.*?)</p>', bilingual, re.S)
+    assert pairs
+    assert all(target.startswith("译:") and not source.startswith("译:") for source, target in pairs)
+    # 书里本来的引文在原文侧、译文侧都还是引用块，原文侧外面多一层 source 容器
+    assert re.search(r'<div class="source">\s*<blockquote>', bilingual)
+    assert re.search(r'</div>\s*<blockquote>\s*<p>译:', bilingual)
+
+    css = _epub_css(out / "doc.bilingual.epub")
+    assert "div.source" in css
+    assert "@page" in css  # 默认样式仍在，只是追加
+    assert "div.source" not in _epub_css(out / "doc.epub")
 
 
 def test_epub_marks_missing_images_instead_of_leaving_broken_links(tmp_path, records):

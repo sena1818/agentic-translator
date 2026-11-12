@@ -124,12 +124,13 @@ def write_epub(
     title: str,
     locator: ImageLocator | None,
     sanitize: Callable[[list], None] | None = None,
+    extra_css: str | None = None,
 ) -> list[str]:
-    """写出一个 EPUB，返回其中缺失的图片。"""
+    """写出一个 EPUB，返回其中缺失的图片。extra_css 追加在 pandoc 默认样式之后。"""
     blocks = copy.deepcopy(blocks)
     if sanitize is not None:
         sanitize(blocks)
     missing: list[str] = []
     localize_images(blocks, locator, missing)
-    pandoc.blocks_to_epub(ast_template, blocks, str(path), title=title)
+    pandoc.blocks_to_epub(ast_template, blocks, str(path), title=title, extra_css=extra_css)
     return missing
