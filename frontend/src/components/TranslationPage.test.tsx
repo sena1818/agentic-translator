@@ -56,6 +56,8 @@ describe("任务工作台", () => {
           filename: "demo.md",
           status: "cancelled",
           glossary_id: null,
+          author: null,
+          domain: null,
           bilingual: false,
           progress: {
             current: 1,

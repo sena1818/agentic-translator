@@ -28,6 +28,8 @@ const task: api.TranslationTask = {
   filename: "book.md",
   status: "completed",
   glossary_id: null,
+  author: null,
+  domain: null,
   bilingual: true,
   progress: { current: 1, total: 1, percentage: 100, speed: 1, elapsed: 60 },
   result_url: "/api/files/results/demo",
