@@ -1,7 +1,7 @@
 """
 评测编排：对三组对照的每个变体跑真实翻译，交裁判打分，汇总成报告。
 
-真实翻译由既有 TranslationEngine 驱动（注入不同 engine/术语表 + 临时缓存 + 配置覆盖），
+真实翻译由既有 TranslationEngine 驱动（注入不同术语表 + 临时缓存 + 配置覆盖），
 token 用量经 UsageMetadataCollector 采集。这部分需要选手与裁判的真实密钥；
 cli 的 --dry-run 会换上假模型工厂与假裁判，机械跑通同一条流水线用于冒烟。
 """
@@ -32,7 +32,6 @@ class Variant:
 
     key: str
     label: str
-    engine: str = "langgraph"
     multi_agent: bool = True
     glossary_enabled: bool = True
 
@@ -45,16 +44,8 @@ class ComparisonSpec:
 
 
 def default_comparisons() -> list[ComparisonSpec]:
-    """issue #6 要求的三组对照（基线：langgraph + 多 Agent 开 + 术语表有）。"""
+    """两组对照（基线：多 Agent 开 + 术语表有）。编排引擎对照随 native 引擎删除而移除（ADR-0001）。"""
     return [
-        ComparisonSpec(
-            "engine",
-            "编排引擎：LangGraph vs Native",
-            [
-                Variant("langgraph", "LangGraph", engine="langgraph"),
-                Variant("native", "Native", engine="native"),
-            ],
-        ),
         ComparisonSpec(
             "multi_agent",
             "多 Agent 协作：开 vs 关",
@@ -74,8 +65,8 @@ def default_comparisons() -> list[ComparisonSpec]:
     ]
 
 
-# 一致率分析取"生产基线"配置的产出：langgraph + 多 Agent 开 + 术语表有
-REFERENCE_VARIANT = Variant("reference", "基线", engine="langgraph", multi_agent=True, glossary_enabled=True)
+# 一致率分析取"生产基线"配置的产出：多 Agent 开 + 术语表有
+REFERENCE_VARIANT = Variant("reference", "基线", multi_agent=True, glossary_enabled=True)
 
 
 def _set_nested(mapping: dict, dotted_key: str, value: Any) -> None:
@@ -183,7 +174,6 @@ class EvaluationRunner:
             engine = TranslationEngine(
                 glossary=glossary,
                 model_factory=factory,
-                engine=variant.engine,
                 cache=cache,
             )
             output_path = Path(tmp) / "out.md"

@@ -141,7 +141,6 @@ glossary_extraction:
 # 三角色多 agent 协作
 multi_agent:
   enabled: true
-  engine: "langgraph"  # 编排引擎：langgraph | native（见 ADR-0001）
   analyst_temperature: 0.1
   analyst_max_chars: 12000
   analyst_max_sections: 12

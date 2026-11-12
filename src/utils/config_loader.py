@@ -256,11 +256,6 @@ class Config:
         return bool(self.get("multi_agent.enabled", True))
 
     @property
-    def engine(self) -> str:
-        """编排引擎：langgraph（文档级 StateGraph）或 native（手写 asyncio）。见 ADR-0001。"""
-        return str(self.get("multi_agent.engine", "langgraph")).lower()
-
-    @property
     def analyst_temperature(self) -> float:
         """文档分析 agent 温度"""
         return float(self.get("multi_agent.analyst_temperature", 0.1))

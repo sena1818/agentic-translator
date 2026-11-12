@@ -207,7 +207,7 @@ def _run(tmp_path, semantic: dict | None):
         config.config["quality"]["semantic_check"].update(semantic)
     calls = []
     engine = TranslationEngine(
-        model_factory=_Factory(calls), cache=TranslationCache(tmp_path / "cache.db"), config=config, engine="native"
+        model_factory=_Factory(calls), cache=TranslationCache(tmp_path / "cache.db"), config=config
     )
     chunks = engine.plan_chunks(_TEXT)
     results = asyncio.run(engine.translate_batch(_TEXT, tmp_path / "stream.md", prepared_chunks=chunks))

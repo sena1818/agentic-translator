@@ -211,7 +211,7 @@ def _export_book(tmp_path, translate):
 
     config = get_config(Path("config/config.yaml"))
     engine = TranslationEngine(
-        model_factory=Factory(), cache=TranslationCache(tmp_path / "cache.db"), config=config, engine="native"
+        model_factory=Factory(), cache=TranslationCache(tmp_path / "cache.db"), config=config
     )
     chunks = engine.plan_chunks(_BOOK)
     results = asyncio.run(engine.translate_batch(_BOOK, tmp_path / "stream.md", prepared_chunks=chunks))

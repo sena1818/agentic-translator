@@ -277,7 +277,6 @@ def test_correction_propagates_within_the_book_and_reaches_the_authors_next_book
             config=config,
             model_factory=_Factory(prompts),
             cache=TranslationCache(tmp_path / "cache.db"),
-            engine="native",
         )
 
     monkeypatch.setattr(translation_tasks, "TranslationEngine", engine_factory)

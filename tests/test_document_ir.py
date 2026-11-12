@@ -66,7 +66,6 @@ def _engine(tmp_path, **factory_kwargs):
         model_factory=FakeFactory(**factory_kwargs),
         cache=TranslationCache(tmp_path / "cache.db"),
         config=_config(),
-        engine="native",
     )
 
 
@@ -345,7 +344,6 @@ def test_task_workflow_publishes_reader_and_rerenders_after_edit(tmp_path, monke
             config=config,
             model_factory=FakeFactory(),
             cache=TranslationCache(tmp_path / "cache.db"),
-            engine="native",
         )
 
     monkeypatch.setattr(translation_tasks, "TranslationEngine", engine_factory)
@@ -617,7 +615,6 @@ def test_term_ledger_unifies_names_without_touching_caller_glossary(tmp_path):
             model_factory=Factory(),
             cache=TranslationCache(tmp_path / "cache.db"),
             config=_config(),
-            engine="native",
         )
         chunks = engine.plan_chunks(text)
         asyncio.run(engine.translate_batch(text, tmp_path / "stream.md", prepared_chunks=chunks))

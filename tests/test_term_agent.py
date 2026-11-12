@@ -272,7 +272,7 @@ def _engine(tmp_path, analyst, agent_enabled: bool):
             return RunnableLambda(analyst)
 
     return TranslationEngine(
-        model_factory=Factory(), cache=TranslationCache(tmp_path / "cache.db"), config=config, engine="native"
+        model_factory=Factory(), cache=TranslationCache(tmp_path / "cache.db"), config=config
     )
 
 

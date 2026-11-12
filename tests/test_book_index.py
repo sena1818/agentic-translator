@@ -212,7 +212,6 @@ def test_task_index_is_queryable_before_translation_and_follows_edits(tmp_path, 
             config=config,
             model_factory=_Factory(),
             cache=TranslationCache(tmp_path / "cache.db"),
-            engine="native",
         )
 
     monkeypatch.setattr(translation_tasks, "TranslationEngine", engine_factory)

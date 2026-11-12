@@ -1,6 +1,6 @@
 # 翻译质量评测方法论
 
-本目录是 issue #6 的评测证据链：**可观测 → 三组对照评测 → RAG 门槛决策**。
+本目录是 issue #6 的评测证据链：**可观测 → 对照评测 → RAG 门槛决策**。
 目标是用可复现的数据回答两个问题：多 Agent / LangGraph 这些重构到底有没有带来质量增益？
 是否值得为"术语表外重复短语"另立项做 RAG 翻译记忆？
 
@@ -26,13 +26,12 @@
   旧做法把缺失维度补成 3 分，会把"没评出来"当成中等表现。
 - 裁判仍是自动辅助，异源只能减轻自我偏好，结论需要人工校准。
 
-## 3. 三组对照
+## 3. 两组对照
 
-每组只在"生产基线"（`langgraph` + 多 Agent 开 + 术语表有）上拨动一个开关：
+每组只在"生产基线"（多 Agent 开 + 术语表有）上拨动一个开关。原先还有一组编排引擎对照（LangGraph vs Native），已随 native 引擎删除而移除：
 
 | 对照组 | 变体 A | 变体 B | 拨动的开关 |
 | --- | --- | --- | --- |
-| 编排引擎 | LangGraph | Native | `TranslationEngine(engine=...)` |
 | 多 Agent 协作 | 开（分析员+审校员） | 关（单翻译员） | `multi_agent.enabled` + `quality.enable_qa_check` |
 | 术语表 | 有 | 无 | 传入 `glossary` 或 `{}` |
 
@@ -63,9 +62,8 @@ translator-eval --dry-run --out docs/evals/results
 
 ## 6. 引擎去留结论
 
-LangGraph 与 Native 两引擎共用同一批组件（prompt_builder / translation_client / quality_pipeline），
-`tests/test_engine_equivalence.py` 已证明二者对同一输入逐字节等价。本评测的引擎对照进一步用真实模型
-确认质量/延迟/token 无显著差异后，即满足 ADR-0001 删除 native 的前置条件（删除动作留待收尾 issue）。
+native 引擎已在 #25 删除，依据是两引擎等价性测试长期逐字节一致，详见 ADR-0001 的"落地情况"一节。
+原等价性测试改为单引擎契约测试 `tests/test_engine_contract.py`。
 
 ## 7. RAG 门槛决策
 

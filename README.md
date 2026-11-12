@@ -28,7 +28,7 @@ Every claim about whether this architecture helps is backed by a reproducible [e
 
 - 🧱 **Structure-preserving translation (Document IR)** — the document is held as a pandoc AST; the LLM only sees text with inline tags (`<b1>…</b1>`, `<m2/>`), so formulas, link URLs, images, footnotes, code, heading levels and anchors cannot be dropped or rewritten. Every segment is checked deterministically against the source skeleton; only failing segments go to the Reviewer, and anything still broken falls back to the source text instead of shipping a lossy translation ([ADR-0004](docs/adr/0004-document-ir-structured-translation.md))
 - 🔗 **Linked bilingual reader** — a single offline HTML file: click any paragraph to jump to its counterpart (both directions), scroll-follow by segment anchors, translated table of contents, footnote popovers, MathML formulas, and `n`/`p` navigation through segments that need review
-- 🕸️ **Document-level LangGraph engine** — analyst → Send-API fan-out → per-chunk translate/QA/repair → aggregate, in one StateGraph ([ADR-0001](docs/adr/0001-langgraph-document-level-graph.md)); a `native` asyncio engine is kept behind a config switch for A/B comparison
+- 🕸️ **Document-level LangGraph engine** — analyst → Send-API fan-out → per-chunk translate/QA/repair → aggregate, in one StateGraph ([ADR-0001](docs/adr/0001-langgraph-document-level-graph.md))
 - 🚀 **Async concurrency** — account-wide request concurrency and rolling RPM limits shared across workers and exponential-backoff retry
 - 🧩 **Chapter-aware chunking** — chunks planned along Markdown headings with stable structured chunk IDs
 - 📚 **Glossary enforcement** — JSON glossaries injected into prompts and verified by the QA checker
@@ -124,10 +124,9 @@ python run_worker.py --processes 4 --parallel-tasks 2 # terminal 2: worker pool
 │  src/interfaces/mcp (MCP stdio server)                      │
 ├──────────────────────── pipelines ──────────────────────────┤
 │  src/pipelines: preprocess → translate →           │
-│  postprocess.  translate/ holds the two engines:            │
-│    graph_engine.py (LangGraph, default)                     │
-│    batch_orchestrator.py (native asyncio, transitional)     │
-│  shared by both: prompt_builder / translation_client /      │
+│  postprocess.  translate/ holds the engine:                 │
+│    graph_engine.py (LangGraph StateGraph)                   │
+│  plus prompt_builder / translation_client /                 │
 │  quality_pipeline / document_analyzer                       │
 ├───────────────────── domain & core ─────────────────────────┤
 │  src/domain: models, rules (pure, no I/O)        │
@@ -168,15 +167,14 @@ Design decisions worth noting (full rationale in [ADR-0001](docs/adr/0001-langgr
 
 - **No LangGraph checkpointer** — resume is owned by the chunk-level SQLite cache; graph-state persistence would duplicate it.
 - **Ordered streaming survives crashes** — chunks are written to disk in source order as they finish, so a crash mid-book still leaves a readable partial result.
-- **Engine switch** — `multi_agent.engine: langgraph | native` in [config/config.yaml](config/config.yaml); both engines share the same components, and an equivalence test suite keeps them honest until `native` is removed.
+- **Single engine** — the hand-written asyncio engine that the graph replaced has been removed; a contract test suite pins the output file, result list and progress events of `translate_batch`.
 
 ## Evaluation
 
-`translator-eval` runs three paired comparisons — each toggles exactly one switch off the production baseline (LangGraph + multi-agent on + glossary on):
+`translator-eval` runs two paired comparisons — each toggles exactly one switch off the production baseline (multi-agent on + glossary on):
 
 | Comparison | Variant A | Variant B |
 | --- | --- | --- |
-| Orchestration engine | LangGraph | native asyncio |
 | Multi-agent roles | on | off (translator only) |
 | Glossary | on | off |
 
@@ -184,7 +182,12 @@ Design decisions worth noting (full rationale in [ADR-0001](docs/adr/0001-langgr
 - **Consistency-rate metric**: measures whether repeated off-glossary phrases translate identically across chunks. It gates whether RAG translation memory is worth building at all — threshold 0.90, decision recorded in [ADR-0002](docs/adr/0002-rag-translation-memory-threshold.md).
 - **Reproduce**: `translator-eval --out docs/evals/results` (requires `SILICONFLOW_API_KEY` + `GOOGLE_API_KEY`); `--dry-run` smoke-tests the harness with fake models.
 
-Methodology, datasets, and the latest report live in [docs/evals/](docs/evals/methodology.md). The currently committed report is a `--dry-run` smoke run (placeholder scores); real numbers land there once the paid judge/contestant keys run the full suite.
+Methodology and datasets live in [docs/evals/](docs/evals/methodology.md). The `translator-eval` report under `docs/evals/results/report.md` is still a `--dry-run` smoke run (placeholder scores).
+
+**Real before/after benchmark** ([bench_2026-11-12.md](docs/evals/results/bench_2026-11-12.md)): the pre-round-two version vs. the current default vs. everything optional switched on, on excerpts from four books (973 segments, DeepSeek V4.1 Flash):
+
+- Current default ≈ old version: same cost, same structure (no missing segments, no failed chunks), flagged-segment rate 9.2% vs. 9.0%. In the blind pairwise judging it won 18 and lost 16 (p ≈ 0.86).
+- All optional stages on: 6.4× the cost and about 15× the wall time, for a flagged rate of 8.6% and no significant judge preference. The term agent and the review agent account for most of that cost, so the optional stages stay off by default ([cost-switches.md](docs/cost-switches.md)).
 
 Throughput on a real production run (Ccru.md, 344 chunks, concurrency 10): **~25 min end-to-end, 13.8 chunks/min, 344/344 succeeded**.
 
@@ -227,7 +230,6 @@ concurrency:
 
 multi_agent:
   enabled: true
-  engine: "langgraph"           # langgraph | native (ADR-0001)
 
 observability:
   langfuse:

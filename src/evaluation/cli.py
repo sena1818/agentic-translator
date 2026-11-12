@@ -1,5 +1,5 @@
 """
-评测命令行入口：一条命令复现三组对照评测 + RAG 门槛分析。
+评测命令行入口：一条命令复现两组对照评测 + RAG 门槛分析。
 
     translator-eval --out docs/evals/results                # 真实评测（需选手与裁判密钥）
     translator-eval --dry-run --out docs/evals/results      # 冒烟：假模型 + 假裁判跑通全流程
@@ -132,7 +132,7 @@ def _repo_root() -> Path:
 
 def main(argv: list[str] | None = None) -> int:
     root = _repo_root()
-    parser = argparse.ArgumentParser(description="翻译质量评测：三组对照 + RAG 门槛分析")
+    parser = argparse.ArgumentParser(description="翻译质量评测：两组对照 + RAG 门槛分析")
     parser.add_argument("--dataset", type=Path, default=root / "docs/evals/datasets/dataset.json")
     parser.add_argument("--prompt", type=Path, default=root / "docs/evals/judge_prompt.md")
     parser.add_argument("--out", type=Path, default=root / "docs/evals/results")

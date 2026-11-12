@@ -368,7 +368,6 @@ def test_task_triage_writes_fixes_and_verdicts_back_and_is_off_by_default(tmp_pa
             config=config,
             model_factory=_Factory(),
             cache=TranslationCache(tmp_path / "cache.db"),
-            engine="native",
         )
 
     monkeypatch.setattr(translation_tasks, "TranslationEngine", engine_factory)

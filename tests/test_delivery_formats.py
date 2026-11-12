@@ -57,7 +57,6 @@ def records(tmp_path_factory):
         model_factory=_Factory(),
         cache=TranslationCache(tmp / "cache.db"),
         config=get_config(Path("config/config.yaml")),
-        engine="native",
     )
     text = FIXTURE.read_text(encoding="utf-8")
     chunks = engine.plan_chunks(text)

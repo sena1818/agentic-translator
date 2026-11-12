@@ -153,7 +153,6 @@ def run(dataset: Path, max_fix_attempts: int = 1) -> dict:
             model_factory=Factory(),
             cache=TranslationCache(Path(tmp) / "cache.db"),
             config=config,
-            engine="native",
         )
         chunks = engine.plan_chunks(text)
         results = asyncio.run(engine.translate_batch(text, Path(tmp) / "out.md", prepared_chunks=chunks))

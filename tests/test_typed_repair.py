@@ -122,7 +122,6 @@ def _run(text, translator, checker, glossary=None, tmp_path=None):
         model_factory=Factory(),
         cache=TranslationCache(tmp_path / "cache.db"),
         config=get_config(Path("config/config.yaml")),
-        engine="native",
     )
     chunks = engine.plan_chunks(text)
     results = asyncio.run(engine.translate_batch(text, tmp_path / "out.md", prepared_chunks=chunks))

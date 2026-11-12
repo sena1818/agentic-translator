@@ -1,7 +1,7 @@
 # ADR-0001: 多 Agent 编排迁移到文档级 LangGraph StateGraph
 
 日期: 2026-07-12
-状态: 已接受
+状态: 已接受；native 路径已于 2026-11-12 删除（#25）
 
 ## 背景
 
@@ -22,8 +22,15 @@
 - **永久保留双引擎**：会漂移，维护成本翻倍，仅作为过渡与评测对照。
 - **checkpointer + SqliteSaver**：可演示框架原生续跑，但与业务缓存双写，放弃。
 
-## 后果
+## 后果（原记录）
 
 - 批处理编排层（batch_orchestrator）将被图取代，评测确认无回归后删除 native 路径。
 - 失败隔离需在每个 Send 分支内自行捕获，维持"失败块占位符"语义。
 - 评测报告需包含 native vs langgraph 的质量/延迟/token 对比，作为删除 native 的依据。
+
+## 落地情况（2026-11-12）
+
+- native 引擎、`multi_agent.engine` 开关和 `batch_orchestrator` 都已删除，`TranslationEngine` 不再接受 `engine` 参数。
+- 删除的依据是：两引擎等价性测试长期通过（输出文件、结果列表、进度事件逐字段一致）。评测框架里原来的"引擎对照"组同时移除。
+- 原先的等价性测试改成单引擎的契约测试，见 `tests/test_engine_contract.py`。
+- 没有补跑 native 与 langgraph 的真实模型对比。两者共用同一批组件，等价性测试已能证明两者产出相同；花钱再跑一遍得不到新信息。

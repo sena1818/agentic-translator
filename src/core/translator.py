@@ -3,7 +3,6 @@
 重构自 scripts/async_translator.py
 """
 
-import asyncio
 import hashlib
 import json
 import logging
@@ -20,7 +19,6 @@ from ..infrastructure.cache.translation_cache import TranslationCache
 from ..infrastructure.document.pandoc import pandoc_available
 from ..infrastructure.llm.chat_model_factory import ChatModelFactory
 from ..infrastructure.llm.rate_limiter import RateLimiter
-from ..pipelines.translate.batch_orchestrator import TranslationBatchOrchestrator
 from ..pipelines.translate.chunk_processing import build_cached_result, cached_progress_event
 from ..pipelines.translate.document_analyzer import DocumentAnalyzer
 from ..pipelines.translate.prompt_builder import TranslationPromptBuilder
@@ -45,7 +43,6 @@ class TranslationEngine:
         self,
         glossary: dict[str, str] = None,
         model_factory=None,
-        engine: str | None = None,
         cache: TranslationCache | None = None,
         config=None,
     ):
@@ -55,7 +52,6 @@ class TranslationEngine:
         Args:
             glossary: 术语表字典
             model_factory: 聊天模型工厂，默认真实 ChatModelFactory；测试可注入符合 Runnable 协议的假 LLM
-            engine: 编排引擎（langgraph | native），默认取配置 multi_agent.engine
             cache: chunk 翻译缓存，默认指向 data/translation_cache.db；测试可注入隔离缓存
         """
         self.config = config or get_config()
@@ -71,7 +67,6 @@ class TranslationEngine:
         # 初始化组件
         self.rate_limiter = RateLimiter(rate=self.config.rate_limit, per=60)
 
-        self.semaphore = asyncio.Semaphore(self.config.max_concurrent)
         self.chunk_planner = ChunkPlanner(
             chunk_size=self.config.chunk_size,
             context_window=self.config.context_window,
@@ -126,11 +121,6 @@ class TranslationEngine:
         # 需要 pandoc；不可用或解析失败时自动回落到传统 Markdown 分块。
         self.structured_enabled = bool(self.config.get("document_ir.enabled", False)) and pandoc_available()
         self.document_plan = None
-        self.batch_orchestrator = TranslationBatchOrchestrator(
-            cache=self.cache,
-            build_cache_key=self._build_cache_key,
-        )
-        self.engine_name = (engine or self.config.engine or "native").lower()
 
     def _build_semantic_checker(self, model_factory):
         """quality.semantic_check 关闭时返回 None；开启模型检查时优先用工厂提供的异源语义检查模型。"""
@@ -416,26 +406,14 @@ class TranslationEngine:
         """
         chunks = prepared_chunks or self.plan_chunks(text)
 
-        if getattr(self, "engine_name", "native") == "langgraph":
-            from ..pipelines.translate.graph_engine import LangGraphTranslationOrchestrator
+        from ..pipelines.translate.graph_engine import LangGraphTranslationOrchestrator
 
-            return await LangGraphTranslationOrchestrator(self).run(
-                text=text,
-                chunks=chunks,
-                output_path=output_path,
-                bilingual=bilingual,
-                progress_callback=progress_callback,
-            )
-
-        # native：手写 asyncio 编排（分析员 → 并发 fan-out → 顺序写盘）
-        await self._prepare_document(text, chunks, progress_callback)
-        return await self.batch_orchestrator.run(
+        return await LangGraphTranslationOrchestrator(self).run(
+            text=text,
             chunks=chunks,
             output_path=output_path,
             bilingual=bilingual,
             progress_callback=progress_callback,
-            process_chunk=self._process_one_chunk,
-            skip_cache_indices=set(getattr(self, "seed_results", {})) | getattr(self, "force_indices", set()),
         )
 
     async def _prepare_document(
@@ -444,7 +422,7 @@ class TranslationEngine:
         chunks: list[TextChunk],
         progress_callback: Callable | None,
     ) -> None:
-        """文档级准备：运行分析员、初始化缓存、上报分块完成事件。两引擎共用。"""
+        """文档级准备：运行分析员、初始化缓存、上报分块完成事件。"""
         await self.cache.initialize()
         profile_key = (
             hashlib.sha256(
@@ -571,13 +549,6 @@ class TranslationEngine:
         self.term_agent_report = report
         return {**ledger, **report.updates(self.glossary, ledger)}
 
-    async def _process_one_chunk(
-        self, chunk: TextChunk, output_manager: OutputManager, callback: Callable | None
-    ) -> TranslationResult:
-        """单块处理(信号量控制)"""
-        async with self.semaphore:
-            return await self._translate_and_emit(chunk, output_manager, callback)
-
     async def _translate_and_emit(
         self,
         chunk: TextChunk,
@@ -586,9 +557,7 @@ class TranslationEngine:
     ) -> TranslationResult:
         """单块完整处理：缓存命中或实时翻译，随后按序写盘。
 
-        与 native 的「batch_orchestrator 缓存分支 + _process_one_chunk 实时分支」
-        逐字段等价；langgraph 引擎的每个 Send 分支复用它，保证两引擎产出一致。
-        并发上限由调用方控制（native 用 Semaphore，langgraph 用图的 max_concurrency）。
+        LangGraph 图的每个 Send 分支调用它；并发上限由图执行的 max_concurrency 控制。
         """
         seed = getattr(self, "seed_results", {}).get(chunk.index)
         if (

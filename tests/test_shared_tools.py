@@ -75,7 +75,6 @@ async def _translated_book(tmp_path, monkeypatch):
             config=config,
             model_factory=_Factory(),
             cache=TranslationCache(tmp_path / "cache.db"),
-            engine="native",
         )
 
     monkeypatch.setattr(translation_tasks, "TranslationEngine", engine_factory)

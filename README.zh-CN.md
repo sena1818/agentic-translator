@@ -28,7 +28,7 @@
 
 - 🧱 **结构保真翻译（Document IR）** —— 以 pandoc AST 持有文档结构，LLM 只看到带内联标签的文字（`<b1>…</b1>`、`<m2/>`），公式、链接地址、图片、脚注、代码、标题层级与锚点物理上无法被丢失或改写；逐段与原文"结构骨架"做确定性比对，只有不合格的段交给审校员定点修复，仍不合格的段回退为原文，绝不输出丢结构的译文（[ADR-0004](docs/adr/0004-document-ir-structured-translation.md)）
 - 🔗 **双栏联动对照阅读器** —— 单文件离线 HTML：点击任一段落双向跳转到对应段，按段锚点跟随滚动，译后目录、脚注浮层、MathML 公式，`n`/`p` 逐个跳转需复核的段
-- 🕸️ **文档级 LangGraph 引擎** —— 分析员 → Send API fan-out → 逐块翻译/质检/修复 → 汇总，全部建在一张 StateGraph 里（[ADR-0001](docs/adr/0001-langgraph-document-level-graph.md)）；`native` asyncio 引擎保留在配置开关后面用于 A/B 对照
+- 🕸️ **文档级 LangGraph 引擎** —— 分析员 → Send API fan-out → 逐块翻译/质检/修复 → 汇总，全部建在一张 StateGraph 里（[ADR-0001](docs/adr/0001-langgraph-document-level-graph.md)）
 - 🚀 **异步并发** —— 按账号共享的跨 Worker 并发与 RPM 预算 + 指数退避重试
 - 🧩 **章节感知分块** —— 沿 Markdown 标题规划 chunk，携带稳定的结构化 chunk ID
 - 📚 **术语表强约束** —— JSON 术语表注入 Prompt，并由质检器校验一致性
@@ -116,10 +116,9 @@ python run_worker.py --processes 4 --parallel-tasks 2  # 终端 2：worker 集�
 │  src/interfaces/mcp (MCP stdio server)                     │
 ├────────────────────────── 流水线 ──────────────────────────┤
 │  src/pipelines: preprocess → translate →          │
-│  postprocess。translate/ 内含两个引擎：                     │
-│    graph_engine.py（LangGraph，默认）                       │
-│    batch_orchestrator.py（native asyncio，过渡期保留）      │
-│  两者共用：prompt_builder / translation_client /            │
+│  postprocess。translate/ 内含编排引擎：                     │
+│    graph_engine.py（LangGraph StateGraph）                  │
+│  及 prompt_builder / translation_client /                   │
 │  quality_pipeline / document_analyzer                      │
 ├──────────────────────── 领域与核心 ─────────────────────────┤
 │  src/domain: models、rules（纯逻辑，无 I/O）      │
@@ -160,15 +159,14 @@ python run_worker.py --processes 4 --parallel-tasks 2  # 终端 2：worker 集�
 
 - **不用 LangGraph checkpointer** —— 断点恢复由 chunk 级 SQLite 缓存承担，图状态持久化与其职责重叠。
 - **顺序流式写盘扛得住崩溃** —— 块按原文顺序边完成边落盘，翻到一半崩了也能留下可读的半成品。
-- **引擎开关** —— [config/config.yaml](config/config.yaml) 中 `multi_agent.engine: langgraph | native`；两条路径共用同一批组件，并由引擎等价性测试套件保证行为一致，直至 `native` 被删除。
+- **单一引擎** —— 被图取代的手写 asyncio 引擎已删除；契约测试固定了 `translate_batch` 的输出文件、结果列表和进度事件。
 
 ## 评测
 
-`translator-eval` 跑三组对照 —— 每组只在生产基线（LangGraph + 多 Agent 开 + 术语表有）上拨动一个开关：
+`translator-eval` 跑两组对照 —— 每组只在生产基线（多 Agent 开 + 术语表有）上拨动一个开关：
 
 | 对照组 | 变体 A | 变体 B |
 | --- | --- | --- |
-| 编排引擎 | LangGraph | native asyncio |
 | 多 Agent 协作 | 开 | 关（仅翻译员） |
 | 术语表 | 有 | 无 |
 
@@ -176,7 +174,12 @@ python run_worker.py --processes 4 --parallel-tasks 2  # 终端 2：worker 集�
 - **译法一致率指标**：度量术语表外的重复短语跨块译法是否一致，作为"要不要立项 RAG 翻译记忆"的量化门槛 —— 阈值 0.90，决策记录在 [ADR-0002](docs/adr/0002-rag-translation-memory-threshold.md)。
 - **复现**：`translator-eval --out docs/evals/results`（需 `SILICONFLOW_API_KEY` + `GOOGLE_API_KEY`）；`--dry-run` 用假模型冒烟验证评测框架本身。
 
-方法论、数据集与最新报告在 [docs/evals/](docs/evals/methodology.md)。当前提交的报告为 `--dry-run` 冒烟结果（占位分数），补齐裁判/选手密钥跑完整套件后即回填真实数据。
+方法论与数据集在 [docs/evals/](docs/evals/methodology.md)。`translator-eval` 的报告 `docs/evals/results/report.md` 仍是 `--dry-run` 冒烟结果（占位分数）。
+
+**真实前后对比**（[bench_2026-11-12.md](docs/evals/results/bench_2026-11-12.md)）：对比第二轮改动前的旧版、当前默认配置、可选阶段全开三组。样本是四本书的节选，共 973 段，模型为 DeepSeek V4.1 Flash。
+
+- 当前默认 ≈ 旧版：成本相同；结构上都没有缺段和失败块；被标出问题的段占比 9.2%，旧版 9.0%。盲评 18 胜 16 负，p ≈ 0.86。
+- 可选阶段全开：费用 6.4 倍，用时约 15 倍；被标出问题的段 8.6%，盲评没有显著偏好。大头在术语 agent 和审校 agent，因此这些阶段继续默认关闭（[cost-switches.md](docs/cost-switches.md)）。
 
 真实生产运行的吞吐（Ccru.md，344 块，并发 10）：**端到端约 25 分钟，13.8 chunks/分钟，344/344 全部成功**。
 
@@ -219,7 +222,6 @@ concurrency:
 
 multi_agent:
   enabled: true
-  engine: "langgraph"           # langgraph | native（ADR-0001）
 
 observability:
   langfuse:

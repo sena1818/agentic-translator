@@ -6,7 +6,6 @@ from src.core.translator import TranslationEngine, TranslationResult
 from src.domain.models.translation_models import DocumentProfile
 from src.domain.rules.chunk_planning import TextChunk
 from src.infrastructure.cache.translation_cache import TranslationCache
-from src.pipelines.translate.batch_orchestrator import TranslationBatchOrchestrator
 
 
 def test_cache_roundtrip():
@@ -39,6 +38,7 @@ def test_translate_batch_uses_cache_hits():
 
             class Config:
                 model_name = "test-model"
+                max_concurrent = 2
 
             engine.config = Config()
 
@@ -63,10 +63,6 @@ def test_translate_batch_uses_cache_hits():
 
             engine.plan_chunks = lambda text: chunks
             engine._build_cache_key = lambda chunk: chunk.chunk_id
-            engine.batch_orchestrator = TranslationBatchOrchestrator(
-                cache=engine.cache,
-                build_cache_key=engine._build_cache_key,
-            )
 
             async def fake_analyze(text, chunks):
                 return DocumentProfile.empty()
@@ -75,24 +71,17 @@ def test_translate_batch_uses_cache_hits():
 
             live_calls = []
 
-            async def fake_process(chunk, output_manager, callback):
+            async def fake_translate(chunk, callback):
                 live_calls.append(chunk.chunk_id)
-                result = TranslationResult(
+                return TranslationResult(
                     chunk_index=chunk.index,
                     original=chunk.text,
                     translation="实时翻译",
                     success=True,
                     chunk_id=chunk.chunk_id,
                 )
-                await output_manager.add_result(
-                    index=result.chunk_index,
-                    content=result.translation,
-                    success=True,
-                    original_text=chunk.text,
-                )
-                return result
 
-            engine._process_one_chunk = fake_process
+            engine.translate_chunk = fake_translate
 
             await engine.cache.set(
                 cache_key="chunk-0",

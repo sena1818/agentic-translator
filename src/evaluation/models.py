@@ -119,7 +119,7 @@ class VariantAggregate:
 class ComparisonGroup:
     """一组对照（如 langgraph vs native）的汇总结果。"""
 
-    name: str  # engine | multi_agent | glossary
+    name: str  # multi_agent | glossary
     title: str
     variants: list[VariantAggregate]
 

@@ -1,11 +1,8 @@
 """
-编排引擎等价性测试套件
+编排引擎契约测试
 
 在翻译流水线用例边界注入符合 Runnable 协议的假 LLM，固化 translate_batch 的对外契约：
 按序写盘的输出文件、结果列表、失败块占位符、进度事件序列。
-
-同一套契约断言对 native 与 langgraph 两个引擎参数化执行；另有一条直接断言两引擎
-逐字段等价。它既是迁移的验收标准，也是未来删除 native 路径的回归依据（ADR-0001）。
 """
 from __future__ import annotations
 
@@ -22,8 +19,6 @@ from src.domain.models.translation_models import TranslationResult
 from src.domain.rules.chunk_planning import TextChunk
 from src.infrastructure.cache.translation_cache import TranslationCache
 from src.utils.config_loader import get_config
-
-ENGINES = ["native", "langgraph"]
 
 _SOURCE_RE = re.compile(r"【待翻译文本】:\n(.*?)\n\n---\n【翻译要求】", re.S)
 
@@ -101,8 +96,8 @@ def _normalize_events(events: list[dict]) -> list[dict]:
     return normalized
 
 
-async def _run_engine(engine_name: str, bilingual: bool = False, glossary: dict | None = None):
-    """用指定引擎跑一遍固定输入，回收对外契约三件套。"""
+async def _run_engine(bilingual: bool = False, glossary: dict | None = None):
+    """跑一遍固定输入，回收对外契约三件套。"""
     get_config(Path("config/config.yaml"))  # 固定为主配置，隔离其他用例的单例污染
     chunks = _sample_chunks()
     events: list[dict] = []
@@ -111,14 +106,13 @@ async def _run_engine(engine_name: str, bilingual: bool = False, glossary: dict 
         events.append(event)
 
     with tempfile.TemporaryDirectory() as temp_dir:
-        cache = TranslationCache(Path(temp_dir) / f"{engine_name}_cache.db")
+        cache = TranslationCache(Path(temp_dir) / "cache.db")
         engine = TranslationEngine(
             glossary=glossary or {},
             model_factory=FakeModelFactory(),
-            engine=engine_name,
             cache=cache,
         )
-        output_path = Path(temp_dir) / f"{engine_name}_output.md"
+        output_path = Path(temp_dir) / "output.md"
         output_path.write_text("", encoding="utf-8")
 
         results = await engine.translate_batch(
@@ -133,9 +127,9 @@ async def _run_engine(engine_name: str, bilingual: bool = False, glossary: dict 
     return file_text, results, events
 
 
-def _run(engine_name: str, bilingual: bool = False, glossary: dict | None = None):
+def _run(bilingual: bool = False, glossary: dict | None = None):
     async def scenario():
-        return await _run_engine(engine_name, bilingual, glossary)
+        return await _run_engine(bilingual, glossary)
 
     return asyncio.run(scenario())
 
@@ -149,10 +143,9 @@ def _no_retry_backoff(monkeypatch):
     monkeypatch.setattr(asyncio, "sleep", _instant)
 
 
-@pytest.mark.parametrize("engine_name", ENGINES)
-def test_engine_satisfies_output_contract(engine_name):
+def test_engine_satisfies_output_contract():
     """按序写盘 + 失败块占位符：输出文件契约。"""
-    file_text, _results, _events = _run(engine_name)
+    file_text, _results, _events = _run()
 
     pos_0 = file_text.find("译文::Alpha body one.")
     pos_1 = file_text.find("译文::Beta body two.")
@@ -166,10 +159,9 @@ def test_engine_satisfies_output_contract(engine_name):
     assert "Gamma BOOM fails." in file_text
 
 
-@pytest.mark.parametrize("engine_name", ENGINES)
-def test_engine_satisfies_result_contract(engine_name):
+def test_engine_satisfies_result_contract():
     """结果列表契约：按块索引有序、成功/失败标记正确。"""
-    _file_text, results, _events = _run(engine_name)
+    _file_text, results, _events = _run()
 
     assert [r.chunk_index for r in results] == [0, 1, 2, 3]
     assert [_normalize_result(r) for r in results] == [
@@ -180,10 +172,9 @@ def test_engine_satisfies_result_contract(engine_name):
     ]
 
 
-@pytest.mark.parametrize("engine_name", ENGINES)
-def test_engine_satisfies_progress_contract(engine_name):
+def test_engine_satisfies_progress_contract():
     """进度事件序列契约：split_completed 置顶，每块一条完成/失败事件。"""
-    _file_text, _results, events = _run(engine_name)
+    _file_text, _results, events = _run()
     normalized = _normalize_events(events)
 
     assert normalized[0] == {"event": "split_completed", "total_chunks": 4}
@@ -196,29 +187,18 @@ def test_engine_satisfies_progress_contract(engine_name):
 
 
 @pytest.mark.parametrize("bilingual", [False, True])
-def test_native_and_langgraph_are_equivalent(bilingual):
-    """两引擎对同一输入逐字段等价：输出文件、结果列表、进度事件序列完全一致。
+def test_glossary_miss_goes_through_repair(bilingual):
+    """术语缺失触发修复循环：修复后的结果带 repaired 标记，其余块不受影响。"""
+    file_text, results, _events = _run(bilingual, {"Alpha": "阿尔法 (Alpha)"})
 
-    注入触发术语修复的术语表，让审校员修复循环也纳入等价比对（repaired 标记）。
-    """
-    glossary = {"Alpha": "阿尔法 (Alpha)"}
-
-    native_file, native_results, native_events = _run("native", bilingual, glossary)
-    graph_file, graph_results, graph_events = _run("langgraph", bilingual, glossary)
-
-    # 1. 按序写盘的输出文件逐字节一致
-    assert graph_file == native_file
-    # 2. 结果列表逐字段一致
-    assert [_normalize_result(r) for r in graph_results] == [_normalize_result(r) for r in native_results]
-    # 3. 进度事件序列（归一化后）一致
-    assert _normalize_events(graph_events) == _normalize_events(native_events)
-    # 修复路径确实被覆盖：chunk-0 触发术语修复
-    assert native_results[0].repaired is True
+    assert results[0].repaired is True
+    assert [r.success for r in results] == [True, True, False, True]
+    assert "[翻译失败 - Chunk 2]" in file_text
 
 
 def test_langgraph_isolates_failed_send_branch():
     """单块失败时该 Send 分支写入占位符，其余分支产出不受影响。"""
-    file_text, results, _events = _run("langgraph")
+    file_text, results, _events = _run()
 
     assert [r.success for r in results] == [True, True, False, True]
     assert "[翻译失败 - Chunk 2]" in file_text

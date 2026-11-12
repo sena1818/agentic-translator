@@ -4,7 +4,7 @@
 三步证据链（见 issue #6 / docs/evals/methodology.md）：
 
 1. 用异源强模型（Gemini）做 LLM-as-judge，对译文按准确性/流畅度/术语一致性打分；
-2. 三组对照——langgraph vs native 引擎、多 Agent 开 vs 关、术语表有 vs 无——各出分数表 + token/延迟；
+2. 两组对照——多 Agent 开 vs 关、术语表有 vs 无——各出分数表 + token/延迟；
 3. 统计术语表外重复短语的译法一致率，据 0.90 门槛决定是否立项 RAG 翻译记忆。
 
 设计原则：打分解析、聚合、一致率计算都是纯函数，注入假裁判 Runnable 即可单元验证，

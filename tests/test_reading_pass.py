@@ -295,7 +295,7 @@ def _engine_run(tmp_path, reading: bool):
     config.config["multi_agent"]["reading_pass"]["min_chapter_chars"] = 100
     log: dict = {}
     engine = TranslationEngine(
-        model_factory=_Factory(log), cache=TranslationCache(tmp_path / "cache.db"), config=config, engine="native"
+        model_factory=_Factory(log), cache=TranslationCache(tmp_path / "cache.db"), config=config
     )
     text = _book(chapters=4, paragraphs=1)
 

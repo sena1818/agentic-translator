@@ -7,7 +7,7 @@
           → translate（翻译分支，复用翻译客户端 + 质量流水线）→ aggregate（汇总节点）→ END
 
 翻译分支复用宿主引擎的既有组件（缓存、翻译客户端、质量流水线、顺序输出），
-与 native 引擎逐块等价；并发上限由图执行的 max_concurrency 控制，不使用 checkpointer
+并发上限由图执行的 max_concurrency 控制，不使用 checkpointer
 （断点恢复由 chunk 级翻译缓存承担）。
 """
 from __future__ import annotations
